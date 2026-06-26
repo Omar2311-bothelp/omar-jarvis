@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#0A0D12" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="mobile-web-app-capable" content="yes" />
+<title>OMAR // Personal Intelligence Shell</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="bootScreen" class="boot-screen">
+  <div class="boot-content">
+    <div class="boot-ring"></div>
+    <div class="boot-text">
+      <span class="boot-line" data-line="0">INITIALIZING OMAR</span>
+      <span class="boot-line" data-line="1">CALIBRATING VOICE MATRIX</span>
+      <span class="boot-line" data-line="2">LINKING MEMORY CORE</span>
+      <span class="boot-line" data-line="3">SYSTEM ONLINE</span>
+    </div>
+  </div>
+</div>
+
+<div id="app" class="app" aria-hidden="true">
+
+  <!-- Ambient background grid / scanlines -->
+  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="bg-vignette" aria-hidden="true"></div>
+
+  <!-- Top status bar -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">OMAR</span>
+      <span class="brand-sub">JARVIS-CLASS INTERFACE</span>
+    </div>
+    <div class="status-cluster">
+      <div class="status-chip" id="clockChip">
+        <span class="dot dot-idle"></span>
+        <span id="clockText">--:--:--</span>
+      </div>
+      <div class="status-chip" id="driveChip">
+        <span class="dot dot-off" id="driveDot"></span>
+        <span id="driveText">DRIVE OFFLINE</span>
+      </div>
+      <button class="icon-btn" id="settingsBtn" aria-label="Settings" title="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.5-2-3.4-2.3.6a7.6 7.6 0 0 0-1.8-1l-.4-2.4H9.1l-.4 2.4a7.6 7.6 0 0 0-1.8 1l-2.3-.6-2 3.4L4.6 11a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.4 2.3-.6a7.6 7.6 0 0 0 1.8 1l.4 2.4h4.8l.4-2.4a7.6 7.6 0 0 0 1.8-1l2.3.6 2-3.4-2-1.5Z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main stage -->
+  <main class="stage">
+
+    <!-- Left dock: system telemetry -->
+    <aside class="dock dock-left" id="dockLeft">
+      <h2 class="dock-title">SYSTEM</h2>
+
+      <div class="tele-block">
+        <span class="tele-label">STATE</span>
+        <span class="tele-value" id="stateValue">STANDBY</span>
+      </div>
+
+      <div class="tele-block">
+        <span class="tele-label">SPEECH IN</span>
+        <span class="tele-value" id="sttValue">—</span>
+      </div>
+
+      <div class="tele-block">
+        <span class="tele-label">SPEECH OUT</span>
+        <span class="tele-value" id="ttsValue">—</span>
+      </div>
+
+      <div class="tele-block">
+        <span class="tele-label">PLATFORM</span>
+        <span class="tele-value" id="platformValue">DETECTING…</span>
+      </div>
+
+      <div class="tele-block">
+        <span class="tele-label">MEMORY</span>
+        <span class="tele-value" id="memoryValue">LOCAL ONLY</span>
+      </div>
+
+      <h2 class="dock-title dock-title-spaced">QUICK COMMANDS</h2>
+      <div class="quick-cmds" id="quickCmds">
+        <button class="cmd-pill" data-cmd="what time is it">TIME</button>
+        <button class="cmd-pill" data-cmd="what's the date">DATE</button>
+        <button class="cmd-pill" data-cmd="set a reminder">REMINDER</button>
+        <button class="cmd-pill" data-cmd="take a note">NOTE</button>
+        <button class="cmd-pill" data-cmd="open drive">DRIVE</button>
+        <button class="cmd-pill" data-cmd="clear screen">CLEAR</button>
+      </div>
+    </aside>
+
+    <!-- Center: the reactor -->
+    <section class="reactor-zone">
+      <div class="reactor-wrap">
+        <canvas id="reactorCanvas" class="reactor-canvas" aria-hidden="true"></canvas>
+        <button id="reactorBtn" class="reactor-core" aria-label="Talk to Omar" title="Tap to talk">
+          <span class="reactor-label" id="reactorLabel">TAP TO<br/>SPEAK</span>
+        </button>
+      </div>
+      <p class="reactor-caption" id="reactorCaption">Awaiting input</p>
+
+      <div class="wake-toggle-row">
+        <label class="switch">
+          <input type="checkbox" id="wakeToggle" />
+          <span class="switch-track"><span class="switch-thumb"></span></span>
+        </label>
+        <span class="wake-label">Always listen for "Omar"</span>
+      </div>
+    </section>
+
+    <!-- Right dock: transcript -->
+    <aside class="dock dock-right" id="dockRight">
+      <h2 class="dock-title">TRANSCRIPT</h2>
+      <div class="transcript" id="transcript">
+        <div class="msg msg-system">
+          <span class="msg-tag">OMAR</span>
+          <p>Foundation systems online. I'm running in rule-based mode for now — tap the core, or type below, and I'll do what I can. Connect Google Drive from settings for persistent memory.</p>
+        </div>
+      </div>
+      <form class="input-row" id="inputForm">
+        <input type="text" id="textInput" placeholder="Type a command…" autocomplete="off" />
+        <button type="submit" class="send-btn" aria-label="Send">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 12h15M13 5l7 7-7 7"/></svg>
+        </button>
+      </form>
+    </aside>
+
+  </main>
+
+  <!-- Mobile transcript toggle -->
+  <button class="mobile-transcript-fab" id="mobileTranscriptFab" aria-label="Toggle transcript">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+  </button>
+
+</div>
+
+<!-- Settings panel -->
+<div id="settingsOverlay" class="overlay" aria-hidden="true">
+  <div class="settings-panel">
+    <div class="settings-header">
+      <h2>SETTINGS</h2>
+      <button class="icon-btn" id="closeSettings" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+
+    <div class="settings-section">
+      <h3>Google Drive</h3>
+      <p class="settings-hint" id="driveStatusHint">Not connected. Memory will stay local to this browser until you connect.</p>
+      <div class="field-row">
+        <label for="clientIdInput">OAuth Client ID</label>
+        <input type="text" id="clientIdInput" placeholder="xxxxxxxx.apps.googleusercontent.com" />
+      </div>
+      <div class="settings-btn-row">
+        <button class="btn-primary" id="saveClientIdBtn">Save Client ID</button>
+        <button class="btn-secondary" id="connectDriveBtn">Connect Drive</button>
+        <button class="btn-ghost" id="disconnectDriveBtn">Disconnect</button>
+      </div>
+      <p class="settings-note">Need a Client ID? Tap "Setup Guide" below — takes about 5 minutes, one time only.</p>
+      <button class="btn-link" id="setupGuideBtn">View Setup Guide →</button>
+    </div>
+
+    <div class="settings-section">
+      <h3>Voice</h3>
+      <div class="field-row field-row-inline">
+        <label for="voiceSelect">Output voice</label>
+        <select id="voiceSelect"></select>
+      </div>
+      <div class="field-row field-row-inline">
+        <label for="rateSlider">Speech rate</label>
+        <input type="range" id="rateSlider" min="0.6" max="1.4" step="0.05" value="1" />
+      </div>
+      <div class="field-row field-row-inline">
+        <label for="muteToggle">Mute voice output</label>
+        <input type="checkbox" id="muteToggle" />
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Data</h3>
+      <div class="settings-btn-row">
+        <button class="btn-secondary" id="exportLogBtn">Export Transcript</button>
+        <button class="btn-ghost" id="wipeMemoryBtn">Wipe Local Memory</button>
+      </div>
+    </div>
+
+    <div class="settings-section settings-footer">
+      <span class="footer-tag">OMAR — PHASE 1 FOUNDATION BUILD</span>
+    </div>
+  </div>
+</div>
+
+<!-- Setup guide modal -->
+<div id="guideOverlay" class="overlay" aria-hidden="true">
+  <div class="guide-panel">
+    <div class="settings-header">
+      <h2>DRIVE SETUP GUIDE</h2>
+      <button class="icon-btn" id="closeGuide" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <ol class="guide-steps">
+      <li>Go to <strong>console.cloud.google.com</strong> and create a new project (or pick an existing one).</li>
+      <li>In the left menu, open <strong>APIs &amp; Services → Library</strong>, search <strong>Google Drive API</strong>, and click Enable.</li>
+      <li>Go to <strong>APIs &amp; Services → Credentials → Create Credentials → OAuth Client ID</strong>.</li>
+      <li>Choose <strong>Web application</strong>. Under "Authorized JavaScript origins" add the exact URL you're hosting OMAR on (e.g. <code>https://yourname.github.io</code>).</li>
+      <li>Click Create. Copy the <strong>Client ID</strong> (ends in <code>.apps.googleusercontent.com</code>).</li>
+      <li>Paste it into OMAR's Settings → Google Drive → OAuth Client ID, save, then tap Connect Drive.</li>
+    </ol>
+    <p class="guide-note">You only do this once. The Client ID isn't a secret password — it just tells Google which app is asking — but only ever add origins you actually control.</p>
+  </div>
+</div>
+
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="memory.js"></script>
+<script src="drive.js"></script>
+<script src="voice.js"></script>
+<script src="brain.js"></script>
+<script src="reactor.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
