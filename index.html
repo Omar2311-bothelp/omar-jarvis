@@ -1,99 +1,1473 @@
-// Supabase Edge Function: omar-jarvis-chat
-// Receives a user message, calls Gemini using the GEMINI_API_KEY secret
-// (never exposed to the browser), and returns JARVIS's reply.
-// Gemini's free tier requires no billing/credit card on the project.
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#05070D">
+<title>OMAR JARVIS</title>
 
-const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+<style>
+  :root {
+    --void: #05070D;
+    --void-soft: #0B0F1A;
+    --indigo: #5B6CFF;
+    --indigo-bright: #8C97FF;
+    --indigo-dim: rgba(91, 108, 255, 0.25);
+    --text-primary: #E8EAF6;
+    --text-dim: #6B7280;
+    --danger: #FF5B7A;
 
-Deno.serve(async (req) => {
-  // Handle CORS preflight
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    --font-display: 'Orbitron', sans-serif;
+    --font-body: 'Inter', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
   }
 
-  if (req.method !== "POST") {
-    return new Response(
-      JSON.stringify({ error: "Only POST is supported" }),
-      { status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    background: var(--void);
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    overflow: hidden;
+    -webkit-tap-highlight-color: transparent;
   }
 
-  if (!GEMINI_API_KEY) {
-    return new Response(
-      JSON.stringify({ error: "Server is missing GEMINI_API_KEY secret" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+  body {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    min-height: 100dvh;
+    background:
+      radial-gradient(ellipse 80% 50% at 50% 0%, rgba(91, 108, 255, 0.06), transparent),
+      radial-gradient(ellipse 60% 40% at 50% 100%, rgba(91, 108, 255, 0.04), transparent),
+      var(--void);
   }
 
-  try {
-    const { message } = await req.json();
+  /* ---------- Top status bar ---------- */
+  .statusbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: max(16px, env(safe-area-inset-top)) 20px 12px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    flex-shrink: 0;
+  }
 
-    if (!message || typeof message !== "string") {
-      return new Response(
-        JSON.stringify({ error: "Request body must include a 'message' string" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+  .statusbar .brand {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.15em;
+    color: var(--indigo-bright);
+  }
+
+  .statusbar .state-label {
+    transition: color 0.3s ease;
+  }
+  .statusbar .state-label[data-active="true"] {
+    color: var(--indigo-bright);
+  }
+
+  .statusbar-right {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .settings-btn {
+    appearance: none;
+    border: none;
+    background: transparent;
+    padding: 4px;
+    display: flex;
+    cursor: pointer;
+    color: var(--text-dim);
+    transition: color 0.2s ease;
+    touch-action: manipulation;
+  }
+  .settings-btn:active { color: var(--indigo-bright); }
+  .settings-btn svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+  }
+
+  /* ---------- Settings panel ---------- */
+  .settings-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+    z-index: 10;
+  }
+  .settings-overlay[data-open="true"] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .settings-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(82vw, 320px);
+    background: var(--void-soft);
+    border-left: 1px solid var(--indigo-dim);
+    padding: max(20px, env(safe-area-inset-top)) 22px max(20px, env(safe-area-inset-bottom));
+    transform: translateX(100%);
+    transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+    z-index: 11;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .settings-panel[data-open="true"] {
+    transform: translateX(0);
+  }
+
+  .settings-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 22px;
+  }
+  .settings-title {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.12em;
+    color: var(--text-primary);
+    text-transform: uppercase;
+  }
+  .settings-close {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    padding: 4px;
+    cursor: pointer;
+    display: flex;
+  }
+  .settings-close svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+  }
+
+  .setting-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 0;
+    border-bottom: 1px solid rgba(91, 108, 255, 0.12);
+  }
+  .setting-row:last-of-type { border-bottom: none; }
+
+  .setting-text { display: flex; flex-direction: column; gap: 3px; max-width: 210px; }
+  .setting-label {
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+  .setting-sub {
+    font-family: var(--font-body);
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--text-dim);
+  }
+
+  .toggle {
+    position: relative;
+    width: 44px;
+    height: 26px;
+    flex-shrink: 0;
+    border-radius: 13px;
+    background: rgba(91, 108, 255, 0.15);
+    border: none;
+    appearance: none;
+    cursor: pointer;
+    touch-action: manipulation;
+    transition: background 0.2s ease;
+  }
+  .toggle[data-on="true"] {
+    background: var(--indigo);
+  }
+  .toggle::after {
+    content: "";
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--text-primary);
+    transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .toggle[data-on="true"]::after {
+    transform: translateX(18px);
+  }
+
+  .settings-footnote {
+    margin-top: auto;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    line-height: 1.5;
+    padding-top: 16px;
+  }
+
+  /* ---------- Notes panel (slides from the left) ---------- */
+  .notes-btn {
+    appearance: none;
+    border: none;
+    background: transparent;
+    padding: 4px;
+    display: flex;
+    cursor: pointer;
+    color: var(--text-dim);
+    transition: color 0.2s ease;
+    touch-action: manipulation;
+  }
+  .notes-btn:active { color: var(--indigo-bright); }
+  .notes-btn svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+  }
+
+  .notes-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+    z-index: 10;
+  }
+  .notes-overlay[data-open="true"] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .notes-panel {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: min(86vw, 360px);
+    background: var(--void-soft);
+    border-right: 1px solid var(--indigo-dim);
+    padding: max(20px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom));
+    transform: translateX(-100%);
+    transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+    z-index: 11;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .notes-panel[data-open="true"] {
+    transform: translateX(0);
+  }
+
+  .notes-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .notes-title {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.12em;
+    color: var(--text-primary);
+    text-transform: uppercase;
+  }
+  .notes-close {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    padding: 4px;
+    cursor: pointer;
+    display: flex;
+  }
+  .notes-close svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+  }
+
+  .note-input-row {
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+    flex-shrink: 0;
+  }
+  .note-input {
+    flex: 1;
+    background: rgba(91, 108, 255, 0.06);
+    border: 1px solid var(--indigo-dim);
+    border-radius: 10px;
+    padding: 10px 12px;
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: 14px;
+    line-height: 1.4;
+    resize: none;
+    max-height: 100px;
+    min-height: 40px;
+  }
+  .note-input:focus {
+    outline: none;
+    border-color: var(--indigo-bright);
+  }
+  .note-input::placeholder { color: var(--text-dim); }
+
+  .note-add-btn {
+    appearance: none;
+    border: 1px solid var(--indigo-dim);
+    background: rgba(91, 108, 255, 0.12);
+    color: var(--indigo-bright);
+    border-radius: 10px;
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .note-add-btn svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+  }
+  .note-add-btn:active { background: rgba(91, 108, 255, 0.22); }
+
+  .notes-list {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-bottom: 8px;
+  }
+
+  .note-card {
+    background: rgba(91, 108, 255, 0.05);
+    border: 1px solid rgba(91, 108, 255, 0.15);
+    border-radius: 10px;
+    padding: 10px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .note-card-text {
+    font-size: 13.5px;
+    line-height: 1.45;
+    color: var(--text-primary);
+    word-break: break-word;
+    white-space: pre-wrap;
+  }
+  .note-card-time {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-top: 4px;
+    display: block;
+  }
+  .note-delete-btn {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    padding: 2px;
+    cursor: pointer;
+    flex-shrink: 0;
+    display: flex;
+  }
+  .note-delete-btn:active { color: var(--danger); }
+  .note-delete-btn svg {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+  }
+
+  .notes-empty {
+    font-family: var(--font-body);
+    font-size: 13px;
+    color: var(--text-dim);
+    text-align: center;
+    padding: 30px 10px;
+    line-height: 1.5;
+  }
+
+  /* ---------- System widgets (top-left, below status bar) ---------- */
+  .system-widgets {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px 20px 0;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+  }
+  .widget-clock {
+    font-size: 15px;
+    color: var(--text-primary);
+    font-weight: 500;
+    letter-spacing: 0.02em;
+  }
+  .widget-date { font-size: 10.5px; }
+  .widget-status {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 4px;
+  }
+  .widget-status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #3ddc84;
+    flex-shrink: 0;
+  }
+  .widget-status[data-online="false"] .widget-status-dot {
+    background: var(--danger);
+  }
+  .widget-battery {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 4px;
+  }
+  .widget-battery[data-available="false"] { display: none; }
+  .widget-battery-icon {
+    width: 18px;
+    height: 9px;
+    border: 1px solid var(--text-dim);
+    border-radius: 2px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    padding: 1px;
+  }
+  .widget-battery-icon::after {
+    content: "";
+    position: absolute;
+    right: -3px;
+    top: 2px;
+    width: 2px;
+    height: 4px;
+    background: var(--text-dim);
+    border-radius: 0 1px 1px 0;
+  }
+  .widget-battery-fill {
+    height: 100%;
+    background: var(--text-dim);
+    border-radius: 1px;
+    transition: width 0.3s ease, background 0.3s ease;
+  }
+  .widget-battery[data-charging="true"] .widget-battery-fill {
+    background: #3ddc84;
+  }
+  .widget-battery[data-low="true"] .widget-battery-fill {
+    background: var(--danger);
+  }
+
+  /* ---------- Main stage ---------- */
+  .stage {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    min-height: 0;
+  }
+
+  .core-wrap {
+    position: relative;
+    width: min(72vw, 320px);
+    height: min(72vw, 320px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  svg.core {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+
+  .core circle {
+    fill: none;
+    stroke: var(--indigo);
+    transform-origin: 160px 160px;
+  }
+
+  /* base ring opacities/widths set per ring via inline attrs; animation states layered via class on wrapper */
+  .ring-outer   { stroke-width: 1; opacity: 0.35; }
+  .ring-mid     { stroke-width: 1.5; opacity: 0.55; }
+  .ring-inner   { stroke-width: 2; opacity: 0.8; }
+  .ring-core    { fill: var(--indigo); opacity: 0.9; stroke: none; }
+
+  /* idle: slow independent rotation + gentle pulse */
+  .core-wrap[data-state="idle"] .ring-outer {
+    animation: spin 22s linear infinite;
+  }
+  .core-wrap[data-state="idle"] .ring-mid {
+    animation: spin-rev 16s linear infinite;
+  }
+  .core-wrap[data-state="idle"] .ring-inner {
+    animation: spin 11s linear infinite;
+  }
+  .core-wrap[data-state="idle"] .ring-core {
+    animation: pulse 3.2s ease-in-out infinite;
+  }
+
+  /* listening: faster spin, brighter, tighter pulse synced to mic */
+  .core-wrap[data-state="listening"] .ring-outer {
+    animation: spin 7s linear infinite;
+    stroke: var(--indigo-bright);
+  }
+  .core-wrap[data-state="listening"] .ring-mid {
+    animation: spin-rev 5s linear infinite;
+    stroke: var(--indigo-bright);
+  }
+  .core-wrap[data-state="listening"] .ring-inner {
+    animation: spin 3.2s linear infinite;
+  }
+  .core-wrap[data-state="listening"] .ring-core {
+    animation: pulse-fast 0.9s ease-in-out infinite;
+    fill: var(--indigo-bright);
+  }
+
+  /* speaking: amplitude-driven via inline style (JS sets scale/opacity), base anim still spins */
+  .core-wrap[data-state="speaking"] .ring-outer {
+    animation: spin 9s linear infinite;
+  }
+  .core-wrap[data-state="speaking"] .ring-mid {
+    animation: spin-rev 6s linear infinite;
+  }
+  .core-wrap[data-state="speaking"] .ring-inner {
+    animation: spin 4s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes spin-rev { to { transform: rotate(-360deg); } }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.75; r: 14; }
+    50% { opacity: 1; r: 16; }
+  }
+  @keyframes pulse-fast {
+    0%, 100% { opacity: 0.85; r: 15; }
+    50% { opacity: 1; r: 19; }
+  }
+
+  .core-wrap[data-state="speaking"] .ring-core {
+    transition: r 0.08s ease-out, opacity 0.08s ease-out;
+    fill: var(--indigo-bright);
+  }
+
+  /* thinking: steady faster spin, no pulse — feels like processing, not reacting */
+  .core-wrap[data-state="thinking"] .ring-outer {
+    animation: spin 4.5s linear infinite;
+  }
+  .core-wrap[data-state="thinking"] .ring-mid {
+    animation: spin-rev 3.2s linear infinite;
+  }
+  .core-wrap[data-state="thinking"] .ring-inner {
+    animation: spin 2s linear infinite;
+  }
+  .core-wrap[data-state="thinking"] .ring-core {
+    opacity: 0.6;
+  }
+
+  /* mic permission / unsupported error ring tint */
+  .core-wrap[data-state="error"] .ring-inner,
+  .core-wrap[data-state="error"] .ring-mid,
+  .core-wrap[data-state="error"] .ring-outer {
+    stroke: var(--danger);
+    opacity: 0.5;
+  }
+  .core-wrap[data-state="error"] .ring-core {
+    fill: var(--danger);
+  }
+
+  .core-label {
+    position: absolute;
+    bottom: -42px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    transition: color 0.3s ease;
+    min-height: 16px;
+  }
+  .core-wrap[data-state="listening"] ~ .core-label,
+  .core-label[data-active="true"] {
+    color: var(--indigo-bright);
+  }
+
+  /* transcript readout */
+  .transcript {
+    position: absolute;
+    bottom: -78px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(86vw, 360px);
+    text-align: center;
+    font-family: var(--font-body);
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text-primary);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    max-height: 4.5em;
+    overflow: hidden;
+  }
+  .transcript[data-visible="true"] { opacity: 0.92; }
+
+  /* assistant's spoken-back reply, stacked below the user's transcript */
+  .response-text {
+    position: absolute;
+    bottom: -160px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(86vw, 360px);
+    text-align: center;
+    font-family: var(--font-body);
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--indigo-bright);
+    background: rgba(91, 108, 255, 0.08);
+    border: 1px solid var(--indigo-dim);
+    border-radius: 12px;
+    padding: 12px 16px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    max-height: 6em;
+    overflow: hidden;
+  }
+  .response-text[data-visible="true"] { opacity: 1; }
+
+  /* ---------- Bottom controls ---------- */
+  .controls {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    padding: 0 20px max(28px, env(safe-area-inset-bottom));
+  }
+
+  .talk-btn {
+    -webkit-appearance: none;
+    appearance: none;
+    border: none;
+    background: transparent;
+    width: 76px;
+    height: 76px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  .talk-btn::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 1.5px solid var(--indigo-dim);
+    background: rgba(91, 108, 255, 0.06);
+    transition: border-color 0.25s ease, background 0.25s ease, transform 0.25s ease;
+  }
+
+  .talk-btn[data-listening="true"]::before {
+    border-color: var(--indigo-bright);
+    background: rgba(91, 108, 255, 0.16);
+    transform: scale(1.06);
+  }
+
+  .talk-btn svg {
+    width: 26px;
+    height: 26px;
+    fill: none;
+    stroke: var(--indigo-bright);
+    stroke-width: 1.6;
+    position: relative;
+    z-index: 1;
+    transition: stroke 0.25s ease;
+  }
+
+  .talk-btn:active::before {
+    transform: scale(0.94);
+  }
+
+  .talk-hint {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+
+  /* unsupported-browser banner */
+  .compat-note {
+    font-family: var(--font-body);
+    font-size: 12.5px;
+    line-height: 1.4;
+    color: var(--text-dim);
+    text-align: center;
+    max-width: 320px;
+    display: none;
+  }
+  .compat-note[data-visible="true"] { display: block; }
+
+  /* reduced motion: respects both OS preference and the in-app toggle */
+  @media (prefers-reduced-motion: reduce) {
+    .core-wrap[data-state] .ring-outer,
+    .core-wrap[data-state] .ring-mid,
+    .core-wrap[data-state] .ring-inner,
+    .core-wrap[data-state] .ring-core {
+      animation: none !important;
     }
+    .core-wrap[data-state="listening"] .ring-core,
+    .core-wrap[data-state="idle"] .ring-core,
+    .core-wrap[data-state="thinking"] .ring-core {
+      opacity: 0.85;
+    }
+  }
+  html[data-force-reduced-motion="true"] .core-wrap[data-state] .ring-outer,
+  html[data-force-reduced-motion="true"] .core-wrap[data-state] .ring-mid,
+  html[data-force-reduced-motion="true"] .core-wrap[data-state] .ring-inner,
+  html[data-force-reduced-motion="true"] .core-wrap[data-state] .ring-core {
+    animation: none !important;
+  }
+  html[data-force-reduced-motion="true"] .core-wrap[data-state="listening"] .ring-core,
+  html[data-force-reduced-motion="true"] .core-wrap[data-state="idle"] .ring-core {
+    opacity: 0.85;
+  }
+  html[data-force-reduced-motion="true"] .settings-panel,
+  html[data-force-reduced-motion="true"] .settings-overlay,
+  html[data-force-reduced-motion="true"] .toggle::after {
+    transition: none !important;
+  }
+</style>
+</head>
+<body>
 
-    const geminiRes = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/interactions",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": GEMINI_API_KEY,
-        },
-        body: JSON.stringify({
-          model: "gemini-3.5-flash",
-          system_instruction:
-            "You are JARVIS, a calm, capable personal AI assistant built by Omar Ibrahim. If asked who made you, who created you, or who your developer/owner is, answer that you were made by Omar Ibrahim. Keep replies short, natural, and conversational — 1 to 3 sentences. No markdown, no lists, just plain spoken language since this will be read aloud by text-to-speech.",
-          input: message,
-        }),
+  <div class="statusbar">
+    <div class="statusbar-right">
+      <button class="notes-btn" id="notesBtn" aria-label="Open notes">
+        <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <path d="M14 2v6h6"/>
+          <line x1="8" y1="13" x2="16" y2="13"/>
+          <line x1="8" y1="17" x2="13" y2="17"/>
+        </svg>
+      </button>
+      <span class="brand">OMAR JARVIS</span>
+    </div>
+    <div class="statusbar-right">
+      <span class="state-label" id="statusText" data-active="false">IDLE</span>
+      <button class="settings-btn" id="settingsBtn" aria-label="Open settings">
+        <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="system-widgets" id="systemWidgets">
+    <span class="widget-clock" id="widgetClock">--:--</span>
+    <span class="widget-date" id="widgetDate">---</span>
+    <div class="widget-status" id="widgetStatus" data-online="true">
+      <span class="widget-status-dot"></span>
+      <span id="widgetStatusText">Online</span>
+    </div>
+    <div class="widget-battery" id="widgetBattery" data-available="false" data-charging="false" data-low="false">
+      <span class="widget-battery-icon"><span class="widget-battery-fill" id="widgetBatteryFill" style="width: 100%"></span></span>
+      <span id="widgetBatteryText">--%</span>
+    </div>
+  </div>
+
+  <div class="notes-overlay" id="notesOverlay" data-open="false"></div>
+  <div class="notes-panel" id="notesPanel" data-open="false">
+    <div class="notes-header">
+      <span class="notes-title">Notes</span>
+      <button class="notes-close" id="notesClose" aria-label="Close notes">
+        <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"/>
+          <line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="note-input-row">
+      <textarea class="note-input" id="noteInput" placeholder="Write a note…" rows="1"></textarea>
+      <button class="note-add-btn" id="noteAddBtn" aria-label="Add note">
+        <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19"/>
+          <line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="notes-list" id="notesList">
+      <div class="notes-empty" id="notesEmpty">No notes yet. Write your first one above.</div>
+    </div>
+  </div>
+
+  <div class="settings-overlay" id="settingsOverlay" data-open="false"></div>
+  <div class="settings-panel" id="settingsPanel" data-open="false">
+    <div class="settings-header">
+      <span class="settings-title">Settings</span>
+      <button class="settings-close" id="settingsClose" aria-label="Close settings">
+        <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"/>
+          <line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-text">
+        <span class="setting-label">Sound</span>
+        <span class="setting-sub">Mute audio cues and responses</span>
+      </div>
+      <button class="toggle" id="toggleSound" data-on="true" aria-label="Toggle sound"></button>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-text">
+        <span class="setting-label">Reduced motion</span>
+        <span class="setting-sub">Tone down animations across the app</span>
+      </div>
+      <button class="toggle" id="toggleMotion" data-on="false" aria-label="Toggle reduced motion"></button>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-text">
+        <span class="setting-label">Celebrations</span>
+        <span class="setting-sub">Visual moments for milestones, like payments</span>
+      </div>
+      <button class="toggle" id="toggleCelebrations" data-on="true" aria-label="Toggle celebrations"></button>
+    </div>
+
+    <div class="settings-footnote">Settings are saved on this device.</div>
+  </div>
+
+  <div class="stage">
+    <div class="core-wrap" id="coreWrap" data-state="idle">
+      <svg class="core" viewBox="0 0 320 320">
+        <circle class="ring-outer" cx="160" cy="160" r="148"/>
+        <circle class="ring-mid"   cx="160" cy="160" r="118"/>
+        <circle class="ring-inner" cx="160" cy="160" r="86"/>
+        <circle class="ring-core" id="coreDot" cx="160" cy="160" r="14"/>
+      </svg>
+      <div class="core-label" id="coreLabel">Tap to talk</div>
+      <div class="transcript" id="transcript" data-visible="false"></div>
+      <div class="response-text" id="responseText" data-visible="false"></div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="talk-btn" id="talkBtn" data-listening="false" aria-label="Tap to talk">
+      <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+        <line x1="12" y1="19" x2="12" y2="22"/>
+      </svg>
+    </button>
+    <div class="talk-hint" id="talkHint">TAP TO TALK</div>
+    <div class="compat-note" id="compatNote" data-visible="false">
+      Voice input isn't supported in this browser yet. On your phone, try Chrome — Safari on iOS has limited speech recognition support for now.
+    </div>
+  </div>
+
+<script>
+(function () {
+  const coreWrap   = document.getElementById('coreWrap');
+  const coreLabel  = document.getElementById('coreLabel');
+  const coreDot    = document.getElementById('coreDot');
+  const statusText = document.getElementById('statusText');
+  const talkBtn    = document.getElementById('talkBtn');
+  const talkHint   = document.getElementById('talkHint');
+  const transcript = document.getElementById('transcript');
+  const responseText = document.getElementById('responseText');
+  const compatNote = document.getElementById('compatNote');
+
+  // ---------- Settings: persistence + global flags ----------
+  // Exposed as window.OmarSettings so other features (sound playback,
+  // future celebrations, etc.) can check these without re-reading storage.
+  const SETTINGS_KEY = 'omar-jarvis-settings';
+  const defaultSettings = { sound: true, reducedMotion: false, celebrations: true };
+
+  function loadSettings() {
+    try {
+      const raw = localStorage.getItem(SETTINGS_KEY);
+      if (!raw) return { ...defaultSettings };
+      const parsed = JSON.parse(raw);
+      return { ...defaultSettings, ...parsed };
+    } catch (err) {
+      return { ...defaultSettings };
+    }
+  }
+
+  function saveSettings(settings) {
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    } catch (err) {
+      // localStorage unavailable (e.g. private browsing) — settings
+      // still work for this session, just won't persist on reload.
+    }
+  }
+
+  const settings = loadSettings();
+  window.OmarSettings = settings;
+
+  function applyReducedMotionFlag() {
+    document.documentElement.setAttribute(
+      'data-force-reduced-motion',
+      settings.reducedMotion ? 'true' : 'false'
+    );
+  }
+  applyReducedMotionFlag();
+
+  const settingsBtn     = document.getElementById('settingsBtn');
+  const settingsClose   = document.getElementById('settingsClose');
+  const settingsOverlay = document.getElementById('settingsOverlay');
+  const settingsPanel   = document.getElementById('settingsPanel');
+  const toggleSound         = document.getElementById('toggleSound');
+  const toggleMotion        = document.getElementById('toggleMotion');
+  const toggleCelebrations  = document.getElementById('toggleCelebrations');
+
+  toggleSound.setAttribute('data-on', String(settings.sound));
+  toggleMotion.setAttribute('data-on', String(settings.reducedMotion));
+  toggleCelebrations.setAttribute('data-on', String(settings.celebrations));
+
+  function openSettings() {
+    settingsOverlay.setAttribute('data-open', 'true');
+    settingsPanel.setAttribute('data-open', 'true');
+  }
+  function closeSettings() {
+    settingsOverlay.setAttribute('data-open', 'false');
+    settingsPanel.setAttribute('data-open', 'false');
+  }
+
+  settingsBtn.addEventListener('click', openSettings);
+  settingsClose.addEventListener('click', closeSettings);
+  settingsOverlay.addEventListener('click', closeSettings);
+
+  function wireToggle(button, key, onChange) {
+    button.addEventListener('click', () => {
+      settings[key] = !settings[key];
+      button.setAttribute('data-on', String(settings[key]));
+      saveSettings(settings);
+      if (onChange) onChange(settings[key]);
+    });
+  }
+
+  wireToggle(toggleSound, 'sound');
+  wireToggle(toggleMotion, 'reducedMotion', applyReducedMotionFlag);
+  wireToggle(toggleCelebrations, 'celebrations');
+
+  // ---------- Notes: persistence + panel logic ----------
+  const NOTES_KEY = 'omar-jarvis-notes';
+
+  function loadNotes() {
+    try {
+      const raw = localStorage.getItem(NOTES_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (err) {
+      return [];
+    }
+  }
+
+  function saveNotes(notes) {
+    try {
+      localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
+    } catch (err) {
+      // localStorage unavailable — notes still work this session only.
+    }
+  }
+
+  let notes = loadNotes();
+
+  const notesBtn     = document.getElementById('notesBtn');
+  const notesClose   = document.getElementById('notesClose');
+  const notesOverlay = document.getElementById('notesOverlay');
+  const notesPanel   = document.getElementById('notesPanel');
+  const noteInput    = document.getElementById('noteInput');
+  const noteAddBtn   = document.getElementById('noteAddBtn');
+  const notesList    = document.getElementById('notesList');
+  const notesEmpty   = document.getElementById('notesEmpty');
+
+  function openNotes() {
+    notesOverlay.setAttribute('data-open', 'true');
+    notesPanel.setAttribute('data-open', 'true');
+  }
+  function closeNotes() {
+    notesOverlay.setAttribute('data-open', 'false');
+    notesPanel.setAttribute('data-open', 'false');
+  }
+
+  notesBtn.addEventListener('click', openNotes);
+  notesClose.addEventListener('click', closeNotes);
+  notesOverlay.addEventListener('click', closeNotes);
+
+  function formatNoteTime(ts) {
+    const d = new Date(ts);
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) +
+      ' · ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  function renderNotes() {
+    if (notes.length === 0) {
+      notesEmpty.style.display = 'block';
+      notesList.innerHTML = '';
+      notesList.appendChild(notesEmpty);
+      return;
+    }
+    notesEmpty.style.display = 'none';
+    notesList.innerHTML = notes
+      .slice()
+      .reverse()
+      .map((note) => (
+        '<div class="note-card" data-id="' + note.id + '">' +
+          '<div>' +
+            '<div class="note-card-text">' + escapeHtml(note.text) + '</div>' +
+            '<span class="note-card-time">' + formatNoteTime(note.createdAt) + '</span>' +
+          '</div>' +
+          '<button class="note-delete-btn" data-delete-id="' + note.id + '" aria-label="Delete note">' +
+            '<svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">' +
+              '<polyline points="3 6 5 6 21 6"></polyline>' +
+              '<path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>' +
+              '<path d="M10 11v6"></path><path d="M14 11v6"></path>' +
+            '</svg>' +
+          '</button>' +
+        '</div>'
+      ))
+      .join('');
+  }
+
+  function addNote(text) {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    notes.push({ id: Date.now() + '-' + Math.random().toString(36).slice(2, 7), text: trimmed, createdAt: Date.now() });
+    saveNotes(notes);
+    renderNotes();
+  }
+
+  function deleteNote(id) {
+    notes = notes.filter((n) => n.id !== id);
+    saveNotes(notes);
+    renderNotes();
+  }
+
+  noteAddBtn.addEventListener('click', () => {
+    addNote(noteInput.value);
+    noteInput.value = '';
+    noteInput.style.height = 'auto';
+  });
+
+  noteInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      addNote(noteInput.value);
+      noteInput.value = '';
+      noteInput.style.height = 'auto';
+    }
+  });
+
+  noteInput.addEventListener('input', () => {
+    noteInput.style.height = 'auto';
+    noteInput.style.height = Math.min(noteInput.scrollHeight, 100) + 'px';
+  });
+
+  notesList.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-delete-id]');
+    if (btn) deleteNote(btn.getAttribute('data-delete-id'));
+  });
+
+  renderNotes();
+
+  // ---------- System widgets: clock, date, online status, battery ----------
+  const widgetClock = document.getElementById('widgetClock');
+  const widgetDate  = document.getElementById('widgetDate');
+  const widgetStatus = document.getElementById('widgetStatus');
+  const widgetStatusText = document.getElementById('widgetStatusText');
+  const widgetBattery = document.getElementById('widgetBattery');
+  const widgetBatteryFill = document.getElementById('widgetBatteryFill');
+  const widgetBatteryText = document.getElementById('widgetBatteryText');
+
+  function updateClock() {
+    const now = new Date();
+    widgetClock.textContent = now.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    widgetDate.textContent = now.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  }
+  updateClock();
+  setInterval(updateClock, 1000 * 15);
+
+  function updateOnlineStatus() {
+    const online = navigator.onLine;
+    widgetStatus.setAttribute('data-online', String(online));
+    widgetStatusText.textContent = online ? 'Online' : 'Offline';
+  }
+  updateOnlineStatus();
+  window.addEventListener('online', updateOnlineStatus);
+  window.addEventListener('offline', updateOnlineStatus);
+
+  // Battery Status API is deprecated/removed in most modern browsers for
+  // privacy reasons. We show it only if the browser genuinely supports it;
+  // otherwise the widget stays hidden rather than showing fake data.
+  if ('getBattery' in navigator) {
+    navigator.getBattery().then((battery) => {
+      function renderBattery() {
+        const pct = Math.round(battery.level * 100);
+        widgetBattery.setAttribute('data-available', 'true');
+        widgetBattery.setAttribute('data-charging', String(battery.charging));
+        widgetBattery.setAttribute('data-low', String(!battery.charging && pct <= 20));
+        widgetBatteryFill.style.width = pct + '%';
+        widgetBatteryText.textContent = pct + '%';
       }
-    );
+      renderBattery();
+      battery.addEventListener('levelchange', renderBattery);
+      battery.addEventListener('chargingchange', renderBattery);
+    }).catch(() => {
+      widgetBattery.setAttribute('data-available', 'false');
+    });
+  }
 
-    if (!geminiRes.ok) {
-      const errBody = await geminiRes.text();
-      return new Response(
-        JSON.stringify({ error: "Gemini API error", detail: errBody }),
-        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+  const STATE = { IDLE: 'idle', LISTENING: 'listening', THINKING: 'thinking', SPEAKING: 'speaking', ERROR: 'error' };
 
-    const data = await geminiRes.json();
+  function setState(state, label) {
+    coreWrap.setAttribute('data-state', state);
+    statusText.textContent = label.toUpperCase();
+    statusText.setAttribute('data-active', state !== STATE.IDLE);
+    coreLabel.setAttribute('data-active', state !== STATE.IDLE);
+  }
 
-    // output_text is the SDK convenience property; the raw REST response
-    // requires reconstructing it from steps/content manually.
-    let replyText = "";
-    if (typeof data.output_text === "string") {
-      replyText = data.output_text;
-    } else if (Array.isArray(data.steps)) {
-      for (const step of data.steps) {
-        if (Array.isArray(step.content)) {
-          for (const block of step.content) {
-            if (block.type === "text" && typeof block.text === "string") {
-              replyText += block.text;
-            }
-          }
+  setState(STATE.IDLE, 'Idle');
+  coreLabel.textContent = 'Tap to talk';
+
+  // ---------- Speech recognition setup ----------
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  if (!SpeechRecognition) {
+    compatNote.setAttribute('data-visible', 'true');
+    talkBtn.disabled = true;
+    talkBtn.style.opacity = '0.4';
+    talkHint.textContent = 'VOICE UNAVAILABLE';
+    setState(STATE.ERROR, 'Unavailable');
+    coreLabel.textContent = 'Voice unavailable';
+  } else {
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+
+    let isListening = false;
+    let finalTranscript = '';
+
+    talkBtn.addEventListener('click', () => {
+      if (isListening) {
+        recognition.stop();
+        return;
+      }
+      finalTranscript = '';
+      transcript.textContent = '';
+      transcript.setAttribute('data-visible', 'false');
+      responseText.textContent = '';
+      responseText.setAttribute('data-visible', 'false');
+      try {
+        recognition.start();
+      } catch (err) {
+        // start() throws if called while already starting; ignore
+      }
+    });
+
+    recognition.onstart = () => {
+      isListening = true;
+      talkBtn.setAttribute('data-listening', 'true');
+      talkHint.textContent = 'LISTENING — TAP TO STOP';
+      setState(STATE.LISTENING, 'Listening');
+      coreLabel.textContent = 'Listening…';
+    };
+
+    recognition.onresult = (event) => {
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const piece = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalTranscript += piece;
+        } else {
+          interim += piece;
         }
       }
-    }
-    replyText = replyText.trim();
+      const shown = (finalTranscript + interim).trim();
+      if (shown) {
+        transcript.textContent = shown;
+        transcript.setAttribute('data-visible', 'true');
+      }
+    };
 
-    return new Response(
-      JSON.stringify({ reply: replyText || "I didn't get a clear response that time." }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-  } catch (err) {
-    return new Response(
-      JSON.stringify({ error: "Unexpected server error", detail: String(err) }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    recognition.onerror = (event) => {
+      isListening = false;
+      talkBtn.setAttribute('data-listening', 'false');
+
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        setState(STATE.ERROR, 'Mic blocked');
+        coreLabel.textContent = 'Microphone access denied';
+        talkHint.textContent = 'ENABLE MIC ACCESS';
+      } else if (event.error === 'no-speech') {
+        setState(STATE.IDLE, 'Idle');
+        coreLabel.textContent = 'Didn\u2019t catch that';
+        talkHint.textContent = 'TAP TO TALK';
+      } else {
+        setState(STATE.IDLE, 'Idle');
+        coreLabel.textContent = 'Tap to talk';
+        talkHint.textContent = 'TAP TO TALK';
+      }
+    };
+
+    recognition.onend = () => {
+      isListening = false;
+      talkBtn.setAttribute('data-listening', 'false');
+
+      if (coreWrap.getAttribute('data-state') === STATE.LISTENING) {
+        const said = finalTranscript.trim();
+        if (said) {
+          if (!tryHandleOpenCommand(said)) {
+            respondTo(said);
+          }
+        } else {
+          setState(STATE.IDLE, 'Idle');
+          coreLabel.textContent = 'Tap to talk';
+          talkHint.textContent = 'TAP TO TALK';
+        }
+      }
+    };
+
+    // ---------- "Open X" commands: handled locally, no AI round trip ----------
+    // A real webpage can only open a new browser tab — it cannot launch
+    // desktop apps or control the OS. This is the honest, safe version of
+    // "open YouTube" style requests.
+    const SITE_MAP = {
+      youtube: 'https://youtube.com',
+      gmail: 'https://mail.google.com',
+      google: 'https://google.com',
+      maps: 'https://maps.google.com',
+      'google maps': 'https://maps.google.com',
+      github: 'https://github.com',
+      whatsapp: 'https://web.whatsapp.com',
+      spotify: 'https://open.spotify.com',
+      netflix: 'https://netflix.com',
+      twitter: 'https://twitter.com',
+      x: 'https://twitter.com',
+      facebook: 'https://facebook.com',
+      instagram: 'https://instagram.com',
+      amazon: 'https://amazon.com',
+      wikipedia: 'https://wikipedia.org',
+    };
+
+    function tryHandleOpenCommand(text) {
+      const lower = text.toLowerCase().trim();
+      const match = lower.match(/^(?:open|launch|go to)\s+(.+?)[.!?]?$/);
+      if (!match) return false;
+
+      let target = match[1].trim();
+      // Strip a leading "the" ("open the youtube" -> "youtube")
+      target = target.replace(/^the\s+/, '');
+
+      const url = SITE_MAP[target];
+      if (!url) return false; // Unknown site — fall through to the AI instead.
+
+      // Browsers only allow window.open to succeed as a direct result of a
+      // user gesture (the tap that started recognition). Since this fires
+      // from a speech result callback, that gesture chain can be lost in
+      // some browsers — if the popup is blocked, we still confirm verbally
+      // and let the person know rather than silently failing.
+      const opened = window.open(url, '_blank');
+
+      setState(STATE.SPEAKING, 'Responding');
+      const label = target.charAt(0).toUpperCase() + target.slice(1);
+      const confirmation = opened
+        ? 'Opening ' + label + ' in a new tab.'
+        : "I tried to open " + label + ", but the browser blocked the new tab. You may need to allow pop-ups for this site.";
+      responseText.textContent = confirmation;
+      responseText.setAttribute('data-visible', 'true');
+      speakReply(confirmation);
+      return true;
+    }
+
+    // ---------- Real backend: Supabase Edge Function -> Claude ----------
+    const JARVIS_BACKEND_URL = 'https://curvnhxkhoswatakzfue.supabase.co/functions/v1/bright-worker';
+
+    async function respondTo(userText) {
+      setState(STATE.THINKING, 'Thinking');
+      talkHint.textContent = 'THINKING…';
+      coreLabel.textContent = 'Thinking…';
+
+      try {
+        const res = await fetch(JARVIS_BACKEND_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: userText }),
+        });
+
+        if (!res.ok) {
+          throw new Error('Backend responded with status ' + res.status);
+        }
+
+        const data = await res.json();
+        const replyText = (data.reply || '').trim();
+
+        if (!replyText) {
+          throw new Error('Empty reply from backend');
+        }
+
+        setState(STATE.SPEAKING, 'Responding');
+        talkHint.textContent = 'RESPONDING…';
+        coreLabel.textContent = 'Responding…';
+        responseText.textContent = replyText;
+        responseText.setAttribute('data-visible', 'true');
+
+        speakReply(replyText);
+      } catch (err) {
+        setState(STATE.ERROR, 'Error');
+        coreLabel.textContent = "Couldn't reach the backend";
+        talkHint.textContent = 'TAP TO TRY AGAIN';
+        responseText.textContent = "Something went wrong reaching the backend. Check your connection and tap the mic to try again.";
+        responseText.setAttribute('data-visible', 'true');
+
+        // Settle back so the mic is usable again without a reload.
+        setTimeout(() => {
+          if (coreWrap.getAttribute('data-state') === STATE.ERROR) {
+            setState(STATE.IDLE, 'Idle');
+            coreLabel.textContent = 'Tap to talk';
+            talkHint.textContent = 'TAP TO TALK';
+          }
+        }, 2400);
+      }
+    }
+
+    function finishSpeaking() {
+      coreDot.removeAttribute('r');
+      coreDot.style.opacity = '';
+      setState(STATE.IDLE, 'Idle');
+      coreLabel.textContent = 'Tap to talk';
+      talkHint.textContent = 'TAP TO TALK';
+    }
+
+    function speakReply(text) {
+      const forceReducedMotion = document.documentElement.getAttribute('data-force-reduced-motion') === 'true';
+      const osReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const reduceMotion = forceReducedMotion || osReducedMotion;
+      const soundOn = window.OmarSettings ? window.OmarSettings.sound : true;
+
+      if (!('speechSynthesis' in window) || !soundOn) {
+        // No speech synthesis support, or the user has muted sound —
+        // hold the speaking state briefly so the visual still reads as
+        // a response, then settle back to idle. Never block on audio.
+        const holdMs = reduceMotion ? 500 : 1200;
+        setTimeout(finishSpeaking, holdMs);
+        return;
+      }
+
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.0;
+      utterance.pitch = 0.95;
+
+      if (reduceMotion) {
+        // Speak normally, but skip the pulse animation loop.
+        utterance.onend = finishSpeaking;
+        utterance.onerror = finishSpeaking;
+        window.speechSynthesis.speak(utterance);
+        return;
+      }
+
+      let lastBoundary = performance.now();
+      let pulse = 0.3;
+      let rafId = null;
+
+      utterance.onboundary = () => {
+        lastBoundary = performance.now();
+        pulse = 1;
+      };
+
+      function tick() {
+        const elapsed = performance.now() - lastBoundary;
+        const decay = Math.max(0, 1 - elapsed / 220);
+        const target = 0.25 + decay * 0.75;
+        pulse += (target - pulse) * 0.35;
+        const r = 14 + pulse * 8;
+        coreDot.setAttribute('r', r.toFixed(1));
+        coreDot.style.opacity = (0.8 + pulse * 0.2).toFixed(2);
+        rafId = requestAnimationFrame(tick);
+      }
+      rafId = requestAnimationFrame(tick);
+
+      function stopAndFinish() {
+        if (rafId) cancelAnimationFrame(rafId);
+        finishSpeaking();
+      }
+
+      utterance.onend = stopAndFinish;
+      utterance.onerror = stopAndFinish;
+      window.speechSynthesis.speak(utterance);
+    }
   }
-});
+})();
+</script>
+</body>
+</html>
