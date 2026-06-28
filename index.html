@@ -1334,6 +1334,8 @@
   const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   const ADMIN_EMAIL = 'omarelhendy2011@gmail.com';
+  const JARVIS_BACKEND_URL = 'https://curvnhxkhoswatakzfue.supabase.co/functions/v1/bright-worker';
+  const JARVIS_ADMIN_USERS_URL = 'https://curvnhxkhoswatakzfue.supabase.co/functions/v1/admin-users';
 
   let currentUser = null;
 
@@ -1959,10 +1961,7 @@
       return true;
     }
 
-    // ---------- Real backend: Supabase Edge Function -> Claude ----------
-    const JARVIS_BACKEND_URL = 'https://curvnhxkhoswatakzfue.supabase.co/functions/v1/bright-worker';
-    const JARVIS_ADMIN_USERS_URL = 'https://curvnhxkhoswatakzfue.supabase.co/functions/v1/admin-users';
-
+    // ---------- Real backend: Supabase Edge Function -> Gemini ----------
     async function respondTo(userText) {
       setState(STATE.THINKING, 'Thinking');
       talkHint.textContent = 'THINKING…';
