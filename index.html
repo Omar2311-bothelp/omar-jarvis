@@ -1450,8 +1450,13 @@
       const res = await fetch(JARVIS_ADMIN_USERS_URL, {
         headers: { Authorization: 'Bearer ' + accessToken },
       });
-      if (!res.ok) throw new Error('Admin request failed with status ' + res.status);
-      const data = await res.json();
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        const detail = data ? JSON.stringify(data) : '(no response body)';
+        throw new Error('Status ' + res.status + ' — ' + detail);
+      }
 
       const users = Array.isArray(data.users) ? data.users : [];
       if (users.length === 0) {
