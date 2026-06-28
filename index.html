@@ -420,6 +420,72 @@
     stroke-width: 1.8;
   }
 
+  .note-card-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .note-edit-btn {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    padding: 2px;
+    cursor: pointer;
+    flex-shrink: 0;
+    display: flex;
+  }
+  .note-edit-btn:active { color: var(--indigo-bright); }
+  .note-edit-btn svg {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+  }
+
+  .note-edit-input {
+    width: 100%;
+    background: rgba(91, 108, 255, 0.08);
+    border: 1px solid var(--indigo-bright);
+    border-radius: 8px;
+    padding: 8px 10px;
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: 13.5px;
+    line-height: 1.45;
+    resize: none;
+    min-height: 50px;
+  }
+  .note-edit-input:focus { outline: none; }
+
+  .note-edit-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 6px;
+  }
+  .note-edit-save, .note-edit-cancel {
+    appearance: none;
+    border: 1px solid var(--indigo-dim);
+    border-radius: 8px;
+    padding: 5px 12px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .note-edit-save {
+    background: rgba(91, 108, 255, 0.18);
+    color: var(--indigo-bright);
+  }
+  .note-edit-cancel {
+    background: transparent;
+    color: var(--text-dim);
+  }
+
   .notes-empty {
     font-family: var(--font-body);
     font-size: 13px;
@@ -1070,6 +1136,8 @@
     return div.innerHTML;
   }
 
+  let editingNoteId = null;
+
   function renderNotes() {
     if (notes.length === 0) {
       notesEmpty.style.display = 'block';
@@ -1081,22 +1149,54 @@
     notesList.innerHTML = notes
       .slice()
       .reverse()
-      .map((note) => (
-        '<div class="note-card" data-id="' + note.id + '">' +
-          '<div>' +
-            '<div class="note-card-text">' + escapeHtml(note.text) + '</div>' +
-            '<span class="note-card-time">' + formatNoteTime(note.createdAt) + '</span>' +
-          '</div>' +
-          '<button class="note-delete-btn" data-delete-id="' + note.id + '" aria-label="Delete note">' +
-            '<svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">' +
-              '<polyline points="3 6 5 6 21 6"></polyline>' +
-              '<path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>' +
-              '<path d="M10 11v6"></path><path d="M14 11v6"></path>' +
-            '</svg>' +
-          '</button>' +
-        '</div>'
-      ))
+      .map((note) => {
+        if (note.id === editingNoteId) {
+          return (
+            '<div class="note-card" data-id="' + note.id + '">' +
+              '<div style="flex:1">' +
+                '<textarea class="note-edit-input" data-edit-input="' + note.id + '">' + escapeHtml(note.text) + '</textarea>' +
+                '<div class="note-edit-row">' +
+                  '<button class="note-edit-save" data-save-id="' + note.id + '">Save</button>' +
+                  '<button class="note-edit-cancel" data-cancel-id="' + note.id + '">Cancel</button>' +
+                '</div>' +
+              '</div>' +
+            '</div>'
+          );
+        }
+        return (
+          '<div class="note-card" data-id="' + note.id + '">' +
+            '<div>' +
+              '<div class="note-card-text">' + escapeHtml(note.text) + '</div>' +
+              '<span class="note-card-time">' + formatNoteTime(note.createdAt) + '</span>' +
+            '</div>' +
+            '<div class="note-card-actions">' +
+              '<button class="note-edit-btn" data-edit-id="' + note.id + '" aria-label="Edit note">' +
+                '<svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">' +
+                  '<path d="M11 4h-7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>' +
+                  '<path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>' +
+                '</svg>' +
+              '</button>' +
+              '<button class="note-delete-btn" data-delete-id="' + note.id + '" aria-label="Delete note">' +
+                '<svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">' +
+                  '<polyline points="3 6 5 6 21 6"></polyline>' +
+                  '<path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>' +
+                  '<path d="M10 11v6"></path><path d="M14 11v6"></path>' +
+                '</svg>' +
+              '</button>' +
+            '</div>' +
+          '</div>'
+        );
+      })
       .join('');
+
+    // Focus the textarea if we just entered edit mode.
+    if (editingNoteId) {
+      const input = notesList.querySelector('[data-edit-input="' + editingNoteId + '"]');
+      if (input) {
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+      }
+    }
   }
 
   function addNote(text) {
@@ -1109,6 +1209,34 @@
 
   function deleteNote(id) {
     notes = notes.filter((n) => n.id !== id);
+    if (editingNoteId === id) editingNoteId = null;
+    saveNotes(notes);
+    renderNotes();
+  }
+
+  function startEditNote(id) {
+    editingNoteId = id;
+    renderNotes();
+  }
+
+  function cancelEditNote() {
+    editingNoteId = null;
+    renderNotes();
+  }
+
+  function saveEditNote(id) {
+    const input = notesList.querySelector('[data-edit-input="' + id + '"]');
+    if (!input) return;
+    const trimmed = input.value.trim();
+    if (!trimmed) {
+      // Don't allow saving an empty note — treat as cancel instead.
+      editingNoteId = null;
+      renderNotes();
+      return;
+    }
+    const note = notes.find((n) => n.id === id);
+    if (note) note.text = trimmed;
+    editingNoteId = null;
     saveNotes(notes);
     renderNotes();
   }
@@ -1134,8 +1262,17 @@
   });
 
   notesList.addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-delete-id]');
-    if (btn) deleteNote(btn.getAttribute('data-delete-id'));
+    const deleteBtn = e.target.closest('[data-delete-id]');
+    if (deleteBtn) { deleteNote(deleteBtn.getAttribute('data-delete-id')); return; }
+
+    const editBtn = e.target.closest('[data-edit-id]');
+    if (editBtn) { startEditNote(editBtn.getAttribute('data-edit-id')); return; }
+
+    const saveBtn = e.target.closest('[data-save-id]');
+    if (saveBtn) { saveEditNote(saveBtn.getAttribute('data-save-id')); return; }
+
+    const cancelBtn = e.target.closest('[data-cancel-id]');
+    if (cancelBtn) { cancelEditNote(); return; }
   });
 
   renderNotes();
@@ -1304,19 +1441,76 @@
     const SITE_MAP = {
       youtube: 'https://youtube.com',
       gmail: 'https://mail.google.com',
+      email: 'https://mail.google.com',
       google: 'https://google.com',
       maps: 'https://maps.google.com',
       'google maps': 'https://maps.google.com',
+      'google drive': 'https://drive.google.com',
+      drive: 'https://drive.google.com',
+      'google photos': 'https://photos.google.com',
+      calendar: 'https://calendar.google.com',
+      'google calendar': 'https://calendar.google.com',
+      docs: 'https://docs.google.com',
+      'google docs': 'https://docs.google.com',
+      sheets: 'https://sheets.google.com',
+      translate: 'https://translate.google.com',
+      'google translate': 'https://translate.google.com',
       github: 'https://github.com',
       whatsapp: 'https://web.whatsapp.com',
       spotify: 'https://open.spotify.com',
+      'apple music': 'https://music.apple.com',
       netflix: 'https://netflix.com',
       twitter: 'https://twitter.com',
       x: 'https://twitter.com',
       facebook: 'https://facebook.com',
       instagram: 'https://instagram.com',
+      tiktok: 'https://tiktok.com',
+      snapchat: 'https://web.snapchat.com',
+      reddit: 'https://reddit.com',
+      linkedin: 'https://linkedin.com',
+      pinterest: 'https://pinterest.com',
+      discord: 'https://discord.com/app',
+      telegram: 'https://web.telegram.org',
       amazon: 'https://amazon.com',
+      ebay: 'https://ebay.com',
       wikipedia: 'https://wikipedia.org',
+      'stack overflow': 'https://stackoverflow.com',
+      stackoverflow: 'https://stackoverflow.com',
+      'claude': 'https://claude.ai',
+      chatgpt: 'https://chat.openai.com',
+      gemini: 'https://gemini.google.com',
+      twitch: 'https://twitch.tv',
+      'prime video': 'https://primevideo.com',
+      'disney plus': 'https://disneyplus.com',
+      hulu: 'https://hulu.com',
+      'apple tv': 'https://tv.apple.com',
+      paypal: 'https://paypal.com',
+      dropbox: 'https://dropbox.com',
+      onedrive: 'https://onedrive.live.com',
+      outlook: 'https://outlook.com',
+      yahoo: 'https://yahoo.com',
+      bing: 'https://bing.com',
+      duckduckgo: 'https://duckduckgo.com',
+      'duck duck go': 'https://duckduckgo.com',
+      weather: 'https://weather.com',
+      news: 'https://news.google.com',
+      'google news': 'https://news.google.com',
+      imdb: 'https://imdb.com',
+      quora: 'https://quora.com',
+      medium: 'https://medium.com',
+      notion: 'https://notion.so',
+      trello: 'https://trello.com',
+      slack: 'https://slack.com',
+      zoom: 'https://zoom.us',
+      'google meet': 'https://meet.google.com',
+      meet: 'https://meet.google.com',
+      figma: 'https://figma.com',
+      canva: 'https://canva.com',
+      supabase: 'https://supabase.com',
+      'amazon prime': 'https://primevideo.com',
+      walmart: 'https://walmart.com',
+      'best buy': 'https://bestbuy.com',
+      etsy: 'https://etsy.com',
     };
 
     function tryHandleOpenCommand(text) {
@@ -1365,7 +1559,10 @@
         });
 
         if (!res.ok) {
-          throw new Error('Backend responded with status ' + res.status);
+          const isTimeout = res.status === 504;
+          const err = new Error('Backend responded with status ' + res.status);
+          err.isTimeout = isTimeout;
+          throw err;
         }
 
         const data = await res.json();
@@ -1384,9 +1581,12 @@
         speakReply(replyText);
       } catch (err) {
         setState(STATE.ERROR, 'Error');
-        coreLabel.textContent = "Couldn't reach the backend";
+        const timedOut = err && err.isTimeout;
+        coreLabel.textContent = timedOut ? 'Took too long to respond' : "Couldn't reach the backend";
         talkHint.textContent = 'TAP TO TRY AGAIN';
-        responseText.textContent = "Something went wrong reaching the backend. Check your connection and tap the mic to try again.";
+        responseText.textContent = timedOut
+          ? "That took longer than expected — the AI service may be slow right now. Tap the mic to try again."
+          : "Something went wrong reaching the backend. Check your connection and tap the mic to try again.";
         responseText.setAttribute('data-visible', 'true');
 
         // Settle back so the mic is usable again without a reload.
