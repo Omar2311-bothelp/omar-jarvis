@@ -1335,6 +1335,19 @@
 
   const ADMIN_EMAIL = 'omarelhendy2011@gmail.com';
   const JARVIS_BACKEND_URL = 'https://curvnhxkhoswatakzfue.supabase.co/functions/v1/bright-worker';
+
+  // Conversation memory: kept in-memory only (resets on reload), capped to
+  // the last 10 exchanges so payload size stays reasonable. Each entry is
+  // { role: 'user' | 'model', text: string }.
+  let conversationHistory = [];
+  const MAX_HISTORY_TURNS = 10;
+
+  function pushHistory(role, text) {
+    conversationHistory.push({ role, text });
+    if (conversationHistory.length > MAX_HISTORY_TURNS * 2) {
+      conversationHistory = conversationHistory.slice(-MAX_HISTORY_TURNS * 2);
+    }
+  }
   const JARVIS_ADMIN_USERS_URL = 'https://curvnhxkhoswatakzfue.supabase.co/functions/v1/admin-users';
 
   let currentUser = null;
@@ -1976,7 +1989,7 @@
         const res = await fetch(JARVIS_BACKEND_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: userText }),
+          body: JSON.stringify({ message: userText, history: conversationHistory }),
         });
 
         const data = await res.json().catch(() => null);
@@ -1995,6 +2008,8 @@
           throw new Error('Empty reply from backend');
         }
 
+        pushHistory('user', userText);
+        pushHistory('model', replyText);
         setState(STATE.SPEAKING, 'Responding');
         talkHint.textContent = 'RESPONDING…';
         coreLabel.textContent = 'Responding…';
