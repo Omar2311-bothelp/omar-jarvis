@@ -240,6 +240,44 @@
     padding-top: 16px;
   }
 
+  .setting-row-stacked {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 16px 0;
+    border-bottom: 1px solid rgba(91, 108, 255, 0.12);
+  }
+  .voice-select {
+    width: 100%;
+    background: rgba(91, 108, 255, 0.06);
+    border: 1px solid var(--indigo-dim);
+    border-radius: 10px;
+    padding: 10px 12px;
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: 13.5px;
+  }
+  .voice-select:focus {
+    outline: none;
+    border-color: var(--indigo-bright);
+  }
+  .voice-test-btn {
+    appearance: none;
+    border: 1px solid var(--indigo-dim);
+    background: rgba(91, 108, 255, 0.12);
+    color: var(--indigo-bright);
+    border-radius: 8px;
+    padding: 6px 14px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    cursor: pointer;
+    touch-action: manipulation;
+    align-self: flex-start;
+  }
+  .voice-test-btn:active { background: rgba(91, 108, 255, 0.22); }
+
   /* ---------- Notes panel (slides from the left) ---------- */
   .notes-btn {
     appearance: none;
@@ -1225,6 +1263,17 @@
       <button class="toggle" id="toggleWakeWord" data-on="false" aria-label="Toggle wake word"></button>
     </div>
 
+    <div class="setting-row-stacked">
+      <div class="setting-text">
+        <span class="setting-label">Voice</span>
+        <span class="setting-sub">Which system voice JARVIS speaks with. Available voices vary by device.</span>
+      </div>
+      <select class="voice-select" id="voiceSelect">
+        <option value="">Default</option>
+      </select>
+      <button class="voice-test-btn" id="voiceTestBtn">Test voice</button>
+    </div>
+
     <div class="settings-footnote">Settings are saved on this device.</div>
   </div>
 
@@ -1272,7 +1321,7 @@
   // Exposed as window.OmarSettings so other features (sound playback,
   // future celebrations, etc.) can check these without re-reading storage.
   const SETTINGS_KEY = 'omar-jarvis-settings';
-  const defaultSettings = { sound: true, reducedMotion: false, celebrations: true, wakeWord: false };
+  const defaultSettings = { sound: true, reducedMotion: false, celebrations: true, wakeWord: false, voiceName: '' };
 
   function loadSettings() {
     try {
@@ -1347,6 +1396,53 @@
   wireToggle(toggleWakeWord, 'wakeWord', (isOn) => {
     if (isOn && window.OmarStartWakeWord) window.OmarStartWakeWord();
     if (!isOn && window.OmarStopWakeWord) window.OmarStopWakeWord();
+  });
+
+  // ---------- Voice picker ----------
+  // getVoices() can return an empty list on first call in some browsers —
+  // the real list only becomes available once 'voiceschanged' fires.
+  // We populate on both the initial call and that event, and re-select
+  // the saved choice each time so a late-arriving list doesn't lose it.
+  const voiceSelect = document.getElementById('voiceSelect');
+  const voiceTestBtn = document.getElementById('voiceTestBtn');
+
+  function populateVoiceList() {
+    if (!('speechSynthesis' in window)) return;
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length === 0) return;
+
+    const previousValue = settings.voiceName || '';
+    voiceSelect.innerHTML = '<option value="">Default</option>' +
+      voices
+        .map((v) => '<option value="' + escapeHtml(v.name) + '">' + escapeHtml(v.name) + (v.lang ? ' (' + v.lang + ')' : '') + '</option>')
+        .join('');
+    voiceSelect.value = previousValue;
+  }
+
+  populateVoiceList();
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.addEventListener('voiceschanged', populateVoiceList);
+  }
+
+  voiceSelect.addEventListener('change', () => {
+    settings.voiceName = voiceSelect.value;
+    saveSettings(settings);
+  });
+
+  function getSelectedVoice() {
+    if (!settings.voiceName || !('speechSynthesis' in window)) return null;
+    const voices = window.speechSynthesis.getVoices();
+    return voices.find((v) => v.name === settings.voiceName) || null;
+  }
+  window.OmarGetSelectedVoice = getSelectedVoice;
+
+  voiceTestBtn.addEventListener('click', () => {
+    if (!('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance("Hi, I'm JARVIS. This is what I sound like.");
+    const voice = getSelectedVoice();
+    if (voice) utterance.voice = voice;
+    window.speechSynthesis.speak(utterance);
   });
 
   // ---------- Supabase client (auth + notes database) ----------
@@ -2172,6 +2268,8 @@
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.rate = 1.0;
       utterance.pitch = 0.95;
+      const selectedVoice = window.OmarGetSelectedVoice ? window.OmarGetSelectedVoice() : null;
+      if (selectedVoice) utterance.voice = selectedVoice;
 
       if (reduceMotion) {
         // Speak normally, but skip the pulse animation loop.
