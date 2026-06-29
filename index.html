@@ -2138,9 +2138,14 @@
       wakeRecognition.interimResults = true;
       wakeRecognition.lang = 'en-US';
 
+      wakeRecognition.onstart = () => {
+        console.log('[wake word] recognizer started');
+      };
+
       wakeRecognition.onresult = (event) => {
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const heard = event.results[i][0].transcript.toLowerCase();
+          console.log('[wake word heard]:', heard); // temporary diagnostic
           if (heard.includes('hey jarvis') || heard.includes('hey, jarvis')) {
             // Don't trigger if we're already mid-conversation.
             const state = coreWrap.getAttribute('data-state');
@@ -2159,6 +2164,7 @@
       };
 
       wakeRecognition.onerror = (event) => {
+        console.log('[wake word] error:', event.error); // temporary diagnostic
         // 'no-speech' and 'aborted' are routine for continuous listening —
         // just restart. Anything else (e.g. mic denied) stops retrying so
         // we don't loop forever against a hard failure.
@@ -2170,6 +2176,7 @@
       };
 
       wakeRecognition.onend = () => {
+        console.log('[wake word] recognizer ended, wakeWordActive:', wakeWordActive); // temporary diagnostic
         if (wakeWordActive) scheduleWakeRestart();
       };
 
