@@ -1423,11 +1423,11 @@
 
   accountBtn.addEventListener('click', () => {
     adminOverlay.setAttribute('data-open', 'true');
-    if (currentUser && currentUser.email === ADMIN_EMAIL) {
-      loadAdminUserList();
-    } else {
-      adminList.innerHTML = '<div class="admin-empty">Signed in as ' + escapeHtml(currentUser ? currentUser.email : '') + '</div>';
-    }
+    // The signed-up-users admin list is shelved for now — Supabase's
+    // admin/users endpoint rejects this project's service-role key in a
+    // way that doesn't match documented behavior. Revisit later; for now
+    // the account panel just confirms who's signed in.
+    adminList.innerHTML = '<div class="admin-empty">Signed in as ' + escapeHtml(currentUser ? currentUser.email : '') + '</div>';
   });
   adminClose.addEventListener('click', () => adminOverlay.setAttribute('data-open', 'false'));
 
