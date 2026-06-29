@@ -1979,15 +1979,17 @@
           body: JSON.stringify({ message: userText }),
         });
 
+        const data = await res.json().catch(() => null);
+
         if (!res.ok) {
           const isTimeout = res.status === 504;
-          const err = new Error('Backend responded with status ' + res.status);
+          const detail = data ? JSON.stringify(data) : '(no response body)';
+          const err = new Error('Status ' + res.status + ' — ' + detail);
           err.isTimeout = isTimeout;
           throw err;
         }
 
-        const data = await res.json();
-        const replyText = (data.reply || '').trim();
+        const replyText = (data && data.reply || '').trim();
 
         if (!replyText) {
           throw new Error('Empty reply from backend');
@@ -2005,9 +2007,9 @@
         const timedOut = err && err.isTimeout;
         coreLabel.textContent = timedOut ? 'Took too long to respond' : "Couldn't reach the backend";
         talkHint.textContent = 'TAP TO TRY AGAIN';
-        responseText.textContent = timedOut
-          ? "That took longer than expected — the AI service may be slow right now. Tap the mic to try again."
-          : "Something went wrong reaching the backend. Check your connection and tap the mic to try again.";
+        responseText.textContent = (timedOut
+          ? "That took longer than expected. "
+          : "Something went wrong reaching the backend. ") + (err && err.message ? err.message : '');
         responseText.setAttribute('data-visible', 'true');
 
         // Settle back so the mic is usable again without a reload.
