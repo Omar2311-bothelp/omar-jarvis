@@ -6,6 +6,13 @@
 <meta name="theme-color" content="#05070D">
 <title>OMAR JARVIS</title>
 
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="JARVIS">
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -2212,6 +2219,18 @@
     }
   }
 })();
+
+// Register the service worker for PWA installability. Failure here
+// (e.g. unsupported browser, or running from file:// where service
+// workers don't function) should never block the app itself.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {
+      // Silently ignore — the app works fine without it, just without
+      // the native "Add to Home Screen" install prompt.
+    });
+  });
+}
 </script>
 </body>
 </html>
