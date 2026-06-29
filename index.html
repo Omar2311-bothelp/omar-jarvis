@@ -1210,6 +1210,14 @@
       <button class="toggle" id="toggleCelebrations" data-on="true" aria-label="Toggle celebrations"></button>
     </div>
 
+    <div class="setting-row">
+      <div class="setting-text">
+        <span class="setting-label">Wake word</span>
+        <span class="setting-sub">Say "Hey JARVIS" instead of tapping the mic. Keep this tab open and focused.</span>
+      </div>
+      <button class="toggle" id="toggleWakeWord" data-on="false" aria-label="Toggle wake word"></button>
+    </div>
+
     <div class="settings-footnote">Settings are saved on this device.</div>
   </div>
 
@@ -1257,7 +1265,7 @@
   // Exposed as window.OmarSettings so other features (sound playback,
   // future celebrations, etc.) can check these without re-reading storage.
   const SETTINGS_KEY = 'omar-jarvis-settings';
-  const defaultSettings = { sound: true, reducedMotion: false, celebrations: true };
+  const defaultSettings = { sound: true, reducedMotion: false, celebrations: true, wakeWord: false };
 
   function loadSettings() {
     try {
@@ -1297,10 +1305,12 @@
   const toggleSound         = document.getElementById('toggleSound');
   const toggleMotion        = document.getElementById('toggleMotion');
   const toggleCelebrations  = document.getElementById('toggleCelebrations');
+  const toggleWakeWord      = document.getElementById('toggleWakeWord');
 
   toggleSound.setAttribute('data-on', String(settings.sound));
   toggleMotion.setAttribute('data-on', String(settings.reducedMotion));
   toggleCelebrations.setAttribute('data-on', String(settings.celebrations));
+  toggleWakeWord.setAttribute('data-on', String(settings.wakeWord));
 
   function openSettings() {
     settingsOverlay.setAttribute('data-open', 'true');
@@ -1327,6 +1337,10 @@
   wireToggle(toggleSound, 'sound');
   wireToggle(toggleMotion, 'reducedMotion', applyReducedMotionFlag);
   wireToggle(toggleCelebrations, 'celebrations');
+  wireToggle(toggleWakeWord, 'wakeWord', (isOn) => {
+    if (isOn && window.OmarStartWakeWord) window.OmarStartWakeWord();
+    if (!isOn && window.OmarStopWakeWord) window.OmarStopWakeWord();
+  });
 
   // ---------- Supabase client (auth + notes database) ----------
   const SUPABASE_URL = 'https://curvnhxkhoswatakzfue.supabase.co';
@@ -2103,6 +2117,93 @@
       utterance.onend = stopAndFinish;
       utterance.onerror = stopAndFinish;
       window.speechSynthesis.speak(utterance);
+    }
+
+    // ---------- Wake word ("Hey JARVIS") ----------
+    // A second, separate continuous recognizer dedicated to listening for
+    // the wake phrase. Kept entirely separate from the tap-to-talk
+    // `recognition` instance above so the two never fight over state.
+    // Browsers throttle/kill background tabs, so this only works
+    // reliably while the tab stays open and focused — that limitation is
+    // disclosed in the Settings copy rather than hidden.
+    let wakeRecognition = null;
+    let wakeWordActive = false;
+    let wakeRestartTimer = null;
+
+    function startWakeWordListening() {
+      if (wakeWordActive) return;
+      wakeWordActive = true;
+      wakeRecognition = new SpeechRecognition();
+      wakeRecognition.continuous = true;
+      wakeRecognition.interimResults = true;
+      wakeRecognition.lang = 'en-US';
+
+      wakeRecognition.onresult = (event) => {
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const heard = event.results[i][0].transcript.toLowerCase();
+          if (heard.includes('hey jarvis') || heard.includes('hey, jarvis')) {
+            // Don't trigger if we're already mid-conversation.
+            const state = coreWrap.getAttribute('data-state');
+            if (state === STATE.IDLE || state === STATE.ERROR) {
+              try { wakeRecognition.stop(); } catch (e) {}
+              // Note: this synthetic click doesn't carry the same "real user
+              // gesture" weight as an actual tap. Speech synthesis usually
+              // still works once the page has had any real interaction
+              // this session, but a fully cold load with zero prior taps
+              // may have audio blocked until the person taps something.
+              talkBtn.click();
+            }
+            return;
+          }
+        }
+      };
+
+      wakeRecognition.onerror = (event) => {
+        // 'no-speech' and 'aborted' are routine for continuous listening —
+        // just restart. Anything else (e.g. mic denied) stops retrying so
+        // we don't loop forever against a hard failure.
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+          wakeWordActive = false;
+          return;
+        }
+        scheduleWakeRestart();
+      };
+
+      wakeRecognition.onend = () => {
+        if (wakeWordActive) scheduleWakeRestart();
+      };
+
+      function scheduleWakeRestart() {
+        if (!wakeWordActive) return;
+        clearTimeout(wakeRestartTimer);
+        wakeRestartTimer = setTimeout(() => {
+          if (wakeWordActive) {
+            try { wakeRecognition.start(); } catch (e) {}
+          }
+        }, 400);
+      }
+
+      try {
+        wakeRecognition.start();
+      } catch (e) {}
+    }
+
+    function stopWakeWordListening() {
+      wakeWordActive = false;
+      clearTimeout(wakeRestartTimer);
+      if (wakeRecognition) {
+        try { wakeRecognition.stop(); } catch (e) {}
+        wakeRecognition = null;
+      }
+    }
+
+    window.OmarStartWakeWord = startWakeWordListening;
+    window.OmarStopWakeWord = stopWakeWordListening;
+
+    // Auto-start on page load if the setting was already on from a
+    // previous session.
+    if (window.OmarSettings && window.OmarSettings.wakeWord) {
+      startWakeWordListening();
     }
   }
 })();
