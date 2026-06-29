@@ -2145,17 +2145,15 @@
       wakeRecognition.onresult = (event) => {
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const heard = event.results[i][0].transcript.toLowerCase();
-          console.log('[wake word heard]:', heard); // temporary diagnostic
-          if (heard.includes('hey jarvis') || heard.includes('hey, jarvis')) {
-            // Don't trigger if we're already mid-conversation.
+          console.log('[wake word heard]:', heard, '| isFinal:', event.results[i].isFinal); // temporary diagnostic
+          if (heard.includes('hey jarvis') || heard.includes('hey, jarvis') || heard.includes('hey jar')) {
+            // Trigger on the interim result too — continuous mode can end
+            // the session before a final result is ever produced, so
+            // waiting for isFinal risks missing the phrase entirely.
             const state = coreWrap.getAttribute('data-state');
             if (state === STATE.IDLE || state === STATE.ERROR) {
+              console.log('[wake word] MATCH — triggering listen flow');
               try { wakeRecognition.stop(); } catch (e) {}
-              // Note: this synthetic click doesn't carry the same "real user
-              // gesture" weight as an actual tap. Speech synthesis usually
-              // still works once the page has had any real interaction
-              // this session, but a fully cold load with zero prior taps
-              // may have audio blocked until the person taps something.
               talkBtn.click();
             }
             return;
