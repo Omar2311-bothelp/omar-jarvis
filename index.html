@@ -1798,39 +1798,99 @@
     coreLabel.textContent = 'Voice unavailable';
   } else {
     const recognition = new SpeechRecognition();
-    recognition.continuous = false;
     recognition.interimResults = true;
     recognition.lang = 'en-US';
 
+    // Single shared recognizer, used in one of two modes:
+    //  - 'command': the normal tap-to-talk flow (continuous = false)
+    //  - 'wake':    background listening for "Hey JARVIS" (continuous = true)
+    // Two separate SpeechRecognition instances cannot both hold the mic
+    // reliably in the same tab — this redesign uses exactly one.
+    let recMode = 'command';
     let isListening = false;
     let finalTranscript = '';
+    let wakeWordEnabled = false;
+    let wakeRestartTimer = null;
 
-    talkBtn.addEventListener('click', () => {
-      if (isListening) {
-        recognition.stop();
-        return;
-      }
+    function beginCommandListening() {
+      recMode = 'command';
       finalTranscript = '';
       transcript.textContent = '';
       transcript.setAttribute('data-visible', 'false');
       responseText.textContent = '';
       responseText.setAttribute('data-visible', 'false');
+      recognition.continuous = false;
+      try {
+        recognition.stop();
+      } catch (e) {}
+      // Give the engine a brief moment to fully release before restarting
+      // in the new mode — starting immediately after stop() can be flaky.
+      setTimeout(() => {
+        try { recognition.start(); } catch (e) {}
+      }, 120);
+    }
+
+    function beginWakeListening() {
+      recMode = 'wake';
+      recognition.continuous = true;
       try {
         recognition.start();
-      } catch (err) {
-        // start() throws if called while already starting; ignore
+      } catch (e) {}
+    }
+
+    function startWakeWordListening() {
+      if (wakeWordEnabled) return;
+      wakeWordEnabled = true;
+      if (!isListening) beginWakeListening();
+    }
+
+    function stopWakeWordListening() {
+      wakeWordEnabled = false;
+      clearTimeout(wakeRestartTimer);
+      if (recMode === 'wake') {
+        try { recognition.stop(); } catch (e) {}
       }
+    }
+
+    window.OmarStartWakeWord = startWakeWordListening;
+    window.OmarStopWakeWord = stopWakeWordListening;
+
+    talkBtn.addEventListener('click', () => {
+      if (isListening && recMode === 'command') {
+        recognition.stop();
+        return;
+      }
+      clearTimeout(wakeRestartTimer);
+      try { recognition.stop(); } catch (e) {}
+      setTimeout(beginCommandListening, recMode === 'wake' ? 150 : 0);
     });
 
     recognition.onstart = () => {
       isListening = true;
-      talkBtn.setAttribute('data-listening', 'true');
-      talkHint.textContent = 'LISTENING — TAP TO STOP';
-      setState(STATE.LISTENING, 'Listening');
-      coreLabel.textContent = 'Listening…';
+      if (recMode === 'command') {
+        talkBtn.setAttribute('data-listening', 'true');
+        talkHint.textContent = 'LISTENING — TAP TO STOP';
+        setState(STATE.LISTENING, 'Listening');
+        coreLabel.textContent = 'Listening…';
+      }
     };
 
     recognition.onresult = (event) => {
+      if (recMode === 'wake') {
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const heard = event.results[i][0].transcript.toLowerCase();
+          if (heard.includes('hey jarvis') || heard.includes('hey, jarvis') || heard.includes('hey jar')) {
+            const state = coreWrap.getAttribute('data-state');
+            if (state === STATE.IDLE || state === STATE.ERROR) {
+              try { recognition.stop(); } catch (e) {}
+              setTimeout(beginCommandListening, 150);
+            }
+            return;
+          }
+        }
+        return;
+      }
+
       let interim = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const piece = event.results[i][0].transcript;
@@ -1851,6 +1911,19 @@
       isListening = false;
       talkBtn.setAttribute('data-listening', 'false');
 
+      if (recMode === 'wake') {
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+          wakeWordEnabled = false;
+          return;
+        }
+        // 'no-speech' / 'aborted' are routine in continuous mode — restart.
+        if (wakeWordEnabled) {
+          clearTimeout(wakeRestartTimer);
+          wakeRestartTimer = setTimeout(beginWakeListening, 400);
+        }
+        return;
+      }
+
       if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
         setState(STATE.ERROR, 'Mic blocked');
         coreLabel.textContent = 'Microphone access denied';
@@ -1870,6 +1943,14 @@
       isListening = false;
       talkBtn.setAttribute('data-listening', 'false');
 
+      if (recMode === 'wake') {
+        if (wakeWordEnabled) {
+          clearTimeout(wakeRestartTimer);
+          wakeRestartTimer = setTimeout(beginWakeListening, 300);
+        }
+        return;
+      }
+
       if (coreWrap.getAttribute('data-state') === STATE.LISTENING) {
         const said = finalTranscript.trim();
         if (said) {
@@ -1880,6 +1961,11 @@
           setState(STATE.IDLE, 'Idle');
           coreLabel.textContent = 'Tap to talk';
           talkHint.textContent = 'TAP TO TALK';
+        }
+        // Resume background wake-word listening after this conversation,
+        // if the person still has it enabled in Settings.
+        if (wakeWordEnabled) {
+          setTimeout(beginWakeListening, 600);
         }
       }
     };
@@ -2119,100 +2205,8 @@
       window.speechSynthesis.speak(utterance);
     }
 
-    // ---------- Wake word ("Hey JARVIS") ----------
-    // A second, separate continuous recognizer dedicated to listening for
-    // the wake phrase. Kept entirely separate from the tap-to-talk
-    // `recognition` instance above so the two never fight over state.
-    // Browsers throttle/kill background tabs, so this only works
-    // reliably while the tab stays open and focused — that limitation is
-    // disclosed in the Settings copy rather than hidden.
-    let wakeRecognition = null;
-    let wakeWordActive = false;
-    let wakeRestartTimer = null;
-
-    function startWakeWordListening() {
-      if (wakeWordActive) return;
-      wakeWordActive = true;
-      wakeRecognition = new SpeechRecognition();
-      wakeRecognition.continuous = true;
-      wakeRecognition.interimResults = true;
-      wakeRecognition.lang = 'en-US';
-
-      wakeRecognition.onstart = () => {
-        console.log('[wake word] recognizer started');
-      };
-
-      wakeRecognition.onresult = (event) => {
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const heard = event.results[i][0].transcript.toLowerCase();
-          console.log('[wake word heard]:', heard, '| isFinal:', event.results[i].isFinal); // temporary diagnostic
-          if (heard.includes('hey jarvis') || heard.includes('hey, jarvis') || heard.includes('hey jar')) {
-            // Trigger on the interim result too — continuous mode can end
-            // the session before a final result is ever produced, so
-            // waiting for isFinal risks missing the phrase entirely.
-            const state = coreWrap.getAttribute('data-state');
-            if (state === STATE.IDLE || state === STATE.ERROR) {
-              console.log('[wake word] MATCH — triggering listen flow');
-              wakeWordActive = false; // prevent auto-restart from re-grabbing the mic
-              clearTimeout(wakeRestartTimer);
-              try { wakeRecognition.stop(); } catch (e) {}
-              // Give the browser a brief moment to actually release the
-              // microphone from the wake-word recognizer before the
-              // tap-to-talk recognizer tries to claim it — starting both
-              // back-to-back with no gap can silently fail to switch over.
-              setTimeout(() => talkBtn.click(), 250);
-            }
-            return;
-          }
-        }
-      };
-
-      wakeRecognition.onerror = (event) => {
-        console.log('[wake word] error:', event.error); // temporary diagnostic
-        // 'no-speech' and 'aborted' are routine for continuous listening —
-        // just restart. Anything else (e.g. mic denied) stops retrying so
-        // we don't loop forever against a hard failure.
-        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-          wakeWordActive = false;
-          return;
-        }
-        scheduleWakeRestart();
-      };
-
-      wakeRecognition.onend = () => {
-        console.log('[wake word] recognizer ended, wakeWordActive:', wakeWordActive); // temporary diagnostic
-        if (wakeWordActive) scheduleWakeRestart();
-      };
-
-      function scheduleWakeRestart() {
-        if (!wakeWordActive) return;
-        clearTimeout(wakeRestartTimer);
-        wakeRestartTimer = setTimeout(() => {
-          if (wakeWordActive) {
-            try { wakeRecognition.start(); } catch (e) {}
-          }
-        }, 400);
-      }
-
-      try {
-        wakeRecognition.start();
-      } catch (e) {}
-    }
-
-    function stopWakeWordListening() {
-      wakeWordActive = false;
-      clearTimeout(wakeRestartTimer);
-      if (wakeRecognition) {
-        try { wakeRecognition.stop(); } catch (e) {}
-        wakeRecognition = null;
-      }
-    }
-
-    window.OmarStartWakeWord = startWakeWordListening;
-    window.OmarStopWakeWord = stopWakeWordListening;
-
-    // Auto-start on page load if the setting was already on from a
-    // previous session.
+    // Auto-start wake-word listening on page load if it was already
+    // enabled in Settings from a previous session.
     if (window.OmarSettings && window.OmarSettings.wakeWord) {
       startWakeWordListening();
     }
