@@ -1126,6 +1126,7 @@
       <button class="auth-btn" id="authSubmitBtn">Sign In</button>
       <div class="auth-error" id="authError"></div>
       <div class="auth-switch" id="authSwitch">Don't have an account? <a id="authSwitchLink">Sign up</a></div>
+      <div class="auth-switch" id="forgotPasswordRow"><a id="forgotPasswordLink">Forgot password?</a></div>
       <div class="auth-loading" id="authLoading" style="display:none">Checking session…</div>
     </div>
   </div>
@@ -1479,26 +1480,57 @@
   const authSwitch   = document.getElementById('authSwitch');
   const authSwitchLink = document.getElementById('authSwitchLink');
   const authLoading  = document.getElementById('authLoading');
+  const forgotPasswordRow = document.getElementById('forgotPasswordRow');
+  const forgotPasswordLink = document.getElementById('forgotPasswordLink');
 
-  let authMode = 'signin'; // 'signin' | 'signup'
+  let authMode = 'signin'; // 'signin' | 'signup' | 'reset' | 'newPassword'
 
   function setAuthMode(mode) {
     authMode = mode;
     authError.textContent = '';
+    authPassword.value = '';
+
     if (mode === 'signup') {
       authSubtitle.textContent = 'Create your JARVIS account';
       authSubmitBtn.textContent = 'Sign Up';
       authSwitch.innerHTML = 'Already have an account? <a id="authSwitchLink">Sign in</a>';
+      authPassword.style.display = '';
+      authPassword.placeholder = 'Password';
+      forgotPasswordRow.style.display = 'none';
+      authSwitch.style.display = '';
+    } else if (mode === 'reset') {
+      authSubtitle.textContent = "Enter your email and we'll send a reset link";
+      authSubmitBtn.textContent = 'Send Reset Link';
+      authSwitch.innerHTML = '<a id="authSwitchLink">Back to sign in</a>';
+      authPassword.style.display = 'none';
+      forgotPasswordRow.style.display = 'none';
+      authSwitch.style.display = '';
+    } else if (mode === 'newPassword') {
+      authSubtitle.textContent = 'Choose a new password';
+      authSubmitBtn.textContent = 'Update Password';
+      authPassword.style.display = '';
+      authPassword.placeholder = 'New password';
+      forgotPasswordRow.style.display = 'none';
+      authSwitch.style.display = 'none';
     } else {
       authSubtitle.textContent = 'Sign in to sync your notes across devices';
       authSubmitBtn.textContent = 'Sign In';
       authSwitch.innerHTML = "Don't have an account? <a id=\"authSwitchLink\">Sign up</a>";
+      authPassword.style.display = '';
+      authPassword.placeholder = 'Password';
+      forgotPasswordRow.style.display = '';
+      authSwitch.style.display = '';
     }
-    document.getElementById('authSwitchLink').addEventListener('click', () => {
-      setAuthMode(authMode === 'signin' ? 'signup' : 'signin');
-    });
+
+    const link = document.getElementById('authSwitchLink');
+    if (link) {
+      link.addEventListener('click', () => {
+        setAuthMode(authMode === 'reset' ? 'signin' : (authMode === 'signin' ? 'signup' : 'signin'));
+      });
+    }
   }
   authSwitchLink.addEventListener('click', () => setAuthMode('signup'));
+  forgotPasswordLink.addEventListener('click', () => setAuthMode('reset'));
 
   function showAuthScreen() {
     authScreen.setAttribute('data-visible', 'true');
@@ -1511,6 +1543,53 @@
     const email = authEmail.value.trim();
     const password = authPassword.value;
     authError.textContent = '';
+
+    if (authMode === 'reset') {
+      if (!email) {
+        authError.textContent = 'Enter your email first.';
+        return;
+      }
+      authSubmitBtn.disabled = true;
+      authSubmitBtn.textContent = 'Sending…';
+      try {
+        const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
+          redirectTo: window.location.origin + window.location.pathname,
+        });
+        if (error) throw error;
+        authError.style.color = 'var(--indigo-bright)';
+        authError.textContent = 'Check your email for a reset link.';
+      } catch (err) {
+        authError.style.color = 'var(--danger)';
+        authError.textContent = err.message || 'Something went wrong. Try again.';
+      } finally {
+        authSubmitBtn.disabled = false;
+        authSubmitBtn.textContent = 'Send Reset Link';
+      }
+      return;
+    }
+
+    if (authMode === 'newPassword') {
+      if (!password) {
+        authError.textContent = 'Enter a new password.';
+        return;
+      }
+      authSubmitBtn.disabled = true;
+      authSubmitBtn.textContent = 'Updating…';
+      try {
+        const { error } = await supabaseClient.auth.updateUser({ password });
+        if (error) throw error;
+        authError.style.color = 'var(--indigo-bright)';
+        authError.textContent = 'Password updated. You can now use it to sign in.';
+        setTimeout(() => setAuthMode('signin'), 1800);
+      } catch (err) {
+        authError.style.color = 'var(--danger)';
+        authError.textContent = err.message || 'Something went wrong. Try again.';
+      } finally {
+        authSubmitBtn.disabled = false;
+        authSubmitBtn.textContent = 'Update Password';
+      }
+      return;
+    }
 
     if (!email || !password) {
       authError.textContent = 'Enter both an email and password.';
@@ -1807,6 +1886,14 @@
 
   // ---------- Session lifecycle ----------
   supabaseClient.auth.onAuthStateChange((event, session) => {
+    if (event === 'PASSWORD_RECOVERY') {
+      // Arrived via the email reset link — Supabase has already created a
+      // temporary session for this purpose. Show the new-password screen
+      // instead of dropping them straight into the app.
+      showAuthScreen();
+      setAuthMode('newPassword');
+      return;
+    }
     if (session && session.user) {
       currentUser = session.user;
       hideAuthScreen();
