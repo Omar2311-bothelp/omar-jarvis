@@ -2153,8 +2153,14 @@
             const state = coreWrap.getAttribute('data-state');
             if (state === STATE.IDLE || state === STATE.ERROR) {
               console.log('[wake word] MATCH — triggering listen flow');
+              wakeWordActive = false; // prevent auto-restart from re-grabbing the mic
+              clearTimeout(wakeRestartTimer);
               try { wakeRecognition.stop(); } catch (e) {}
-              talkBtn.click();
+              // Give the browser a brief moment to actually release the
+              // microphone from the wake-word recognizer before the
+              // tap-to-talk recognizer tries to claim it — starting both
+              // back-to-back with no gap can silently fail to switch over.
+              setTimeout(() => talkBtn.click(), 250);
             }
             return;
           }
