@@ -1275,6 +1275,14 @@
       <button class="voice-test-btn" id="voiceTestBtn">Test voice</button>
     </div>
 
+    <div class="setting-row-stacked">
+      <div class="setting-text">
+        <span class="setting-label">Spotify</span>
+        <span class="setting-sub" id="spotifyStatusText">Connect to search music and manage playlists. Requires a free or premium Spotify account.</span>
+      </div>
+      <button class="voice-test-btn" id="spotifyConnectBtn">Connect Spotify</button>
+    </div>
+
     <div class="settings-footnote">Settings are saved on this device.</div>
   </div>
 
@@ -1445,6 +1453,181 @@
     if (voice) utterance.voice = voice;
     window.speechSynthesis.speak(utterance);
   });
+
+  // ---------- Spotify (search + playlists, Free-tier compatible) ----------
+  // Authorization Code flow with PKCE — the standard, secure pattern for
+  // browser apps with no server-side secret on this leg. The client
+  // secret (used only for token refresh) lives in Supabase, never here.
+  const SPOTIFY_CLIENT_ID = 'af79f4467d0a439e91ea4c0848d69792';
+  const SPOTIFY_REDIRECT_URI = window.location.origin + window.location.pathname;
+  const SPOTIFY_SCOPES = 'playlist-read-private playlist-modify-private playlist-modify-public';
+  const SPOTIFY_TOKEN_KEY = 'omar-jarvis-spotify-tokens';
+  const JARVIS_SPOTIFY_TOKEN_URL = 'https://curvnhxkhoswatakzfue.supabase.co/functions/v1/spotify-token';
+
+  const spotifyConnectBtn = document.getElementById('spotifyConnectBtn');
+  const spotifyStatusText = document.getElementById('spotifyStatusText');
+
+  function loadSpotifyTokens() {
+    try {
+      const raw = localStorage.getItem(SPOTIFY_TOKEN_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function saveSpotifyTokens(tokens) {
+    try {
+      localStorage.setItem(SPOTIFY_TOKEN_KEY, JSON.stringify(tokens));
+    } catch (e) {}
+  }
+
+  function clearSpotifyTokens() {
+    try {
+      localStorage.removeItem(SPOTIFY_TOKEN_KEY);
+    } catch (e) {}
+  }
+
+  function updateSpotifyUI() {
+    const tokens = loadSpotifyTokens();
+    if (tokens && tokens.access_token) {
+      spotifyStatusText.textContent = 'Connected. JARVIS can search music and manage your playlists.';
+      spotifyConnectBtn.textContent = 'Disconnect Spotify';
+    } else {
+      spotifyStatusText.textContent = 'Connect to search music and manage playlists. Requires a free or premium Spotify account.';
+      spotifyConnectBtn.textContent = 'Connect Spotify';
+    }
+  }
+  updateSpotifyUI();
+
+  // PKCE helpers — generate a random verifier, derive its SHA-256
+  // challenge, base64url-encode it per the spec.
+  function generateRandomString(length) {
+    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let text = '';
+    const randomValues = crypto.getRandomValues(new Uint8Array(length));
+    for (let i = 0; i < length; i++) {
+      text += possible[randomValues[i] % possible.length];
+    }
+    return text;
+  }
+
+  async function sha256(plain) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(plain);
+    return crypto.subtle.digest('SHA-256', data);
+  }
+
+  function base64UrlEncode(buffer) {
+    let str = '';
+    const bytes = new Uint8Array(buffer);
+    for (let i = 0; i < bytes.byteLength; i++) {
+      str += String.fromCharCode(bytes[i]);
+    }
+    return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  spotifyConnectBtn.addEventListener('click', async () => {
+    const tokens = loadSpotifyTokens();
+    if (tokens && tokens.access_token) {
+      clearSpotifyTokens();
+      updateSpotifyUI();
+      return;
+    }
+
+    const verifier = generateRandomString(64);
+    const challengeBuffer = await sha256(verifier);
+    const challenge = base64UrlEncode(challengeBuffer);
+
+    // Stash the verifier so we can complete the exchange after the
+    // redirect back from Spotify.
+    sessionStorage.setItem('spotify_pkce_verifier', verifier);
+
+    const authUrl = new URL('https://accounts.spotify.com/authorize');
+    authUrl.searchParams.set('client_id', SPOTIFY_CLIENT_ID);
+    authUrl.searchParams.set('response_type', 'code');
+    authUrl.searchParams.set('redirect_uri', SPOTIFY_REDIRECT_URI);
+    authUrl.searchParams.set('scope', SPOTIFY_SCOPES);
+    authUrl.searchParams.set('code_challenge_method', 'S256');
+    authUrl.searchParams.set('code_challenge', challenge);
+
+    window.location.href = authUrl.toString();
+  });
+
+  // Handle the redirect back from Spotify, if a ?code= param is present.
+  (async function handleSpotifyCallback() {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    if (!code) return;
+
+    const verifier = sessionStorage.getItem('spotify_pkce_verifier');
+    if (!verifier) return; // Not a callback we initiated — ignore.
+
+    try {
+      const res = await fetch(JARVIS_SPOTIFY_TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          grant_type: 'authorization_code',
+          code: code,
+          redirect_uri: SPOTIFY_REDIRECT_URI,
+          code_verifier: verifier,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.access_token) {
+        throw new Error(data.error || 'Token exchange failed');
+      }
+      saveSpotifyTokens({
+        access_token: data.access_token,
+        refresh_token: data.refresh_token,
+        expires_at: Date.now() + (data.expires_in * 1000),
+      });
+      updateSpotifyUI();
+    } catch (err) {
+      // Surface nothing intrusive — just leave Spotify disconnected and
+      // let the person try again from Settings.
+      console.error('Spotify connect failed:', err);
+    } finally {
+      sessionStorage.removeItem('spotify_pkce_verifier');
+      // Clean the ?code= param out of the URL so a reload doesn't retry it.
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  })();
+
+  // Returns a valid access token, refreshing it first if expired.
+  async function getValidSpotifyToken() {
+    const tokens = loadSpotifyTokens();
+    if (!tokens) return null;
+
+    if (Date.now() < tokens.expires_at - 60000) {
+      return tokens.access_token;
+    }
+
+    if (!tokens.refresh_token) return null;
+
+    try {
+      const res = await fetch(JARVIS_SPOTIFY_TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ grant_type: 'refresh_token', refresh_token: tokens.refresh_token }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.access_token) throw new Error('Refresh failed');
+      const newTokens = {
+        access_token: data.access_token,
+        refresh_token: data.refresh_token || tokens.refresh_token,
+        expires_at: Date.now() + (data.expires_in * 1000),
+      };
+      saveSpotifyTokens(newTokens);
+      return newTokens.access_token;
+    } catch (err) {
+      clearSpotifyTokens();
+      updateSpotifyUI();
+      return null;
+    }
+  }
+  window.OmarGetSpotifyToken = getValidSpotifyToken;
 
   // ---------- Supabase client (auth + notes database) ----------
   const SUPABASE_URL = 'https://curvnhxkhoswatakzfue.supabase.co';
@@ -2144,9 +2327,11 @@
       if (coreWrap.getAttribute('data-state') === STATE.LISTENING) {
         const said = finalTranscript.trim();
         if (said) {
-          if (!tryHandleOpenCommand(said)) {
-            respondTo(said);
-          }
+          trySpotifyCommand(said).then((handled) => {
+            if (!handled && !tryHandleOpenCommand(said)) {
+              respondTo(said);
+            }
+          });
         } else {
           setState(STATE.IDLE, 'Idle');
           coreLabel.textContent = 'Tap to talk';
@@ -2238,6 +2423,119 @@
       'best buy': 'https://bestbuy.com',
       etsy: 'https://etsy.com',
     };
+
+    // ---------- Spotify voice commands: search + add to playlist ----------
+    // Handled locally (real API calls), not routed through the AI, since
+    // these need actual Spotify data, not a generated guess.
+    async function trySpotifyCommand(text) {
+      const lower = text.toLowerCase().trim();
+
+      const searchMatch = lower.match(/^(?:search spotify for|find on spotify|spotify search for)\s+(.+)$/);
+      const addMatch = lower.match(/^add\s+(.+?)\s+to (?:my )?(.+?)\s+playlist$/);
+
+      if (!searchMatch && !addMatch) return false;
+
+      const token = window.OmarGetSpotifyToken ? await window.OmarGetSpotifyToken() : null;
+      if (!token) {
+        const msg = "I'm not connected to Spotify yet. Connect it in Settings first.";
+        setState(STATE.SPEAKING, 'Responding');
+        responseText.textContent = msg;
+        responseText.setAttribute('data-visible', 'true');
+        speakReply(msg);
+        return true;
+      }
+
+      setState(STATE.THINKING, 'Thinking');
+      coreLabel.textContent = 'Searching Spotify…';
+
+      try {
+        if (searchMatch) {
+          const query = searchMatch[1].trim();
+          const res = await fetch(
+            'https://api.spotify.com/v1/search?type=track&limit=3&q=' + encodeURIComponent(query),
+            { headers: { Authorization: 'Bearer ' + token } }
+          );
+          const data = await res.json();
+          const tracks = data.tracks && data.tracks.items ? data.tracks.items : [];
+
+          let reply;
+          if (tracks.length === 0) {
+            reply = "I couldn't find anything on Spotify for " + query + ".";
+          } else {
+            const names = tracks.map((t) => t.name + ' by ' + t.artists.map((a) => a.name).join(', '));
+            reply = "Top results: " + names.join(', then ') + ".";
+          }
+          setState(STATE.SPEAKING, 'Responding');
+          responseText.textContent = reply;
+          responseText.setAttribute('data-visible', 'true');
+          speakReply(reply);
+          return true;
+        }
+
+        if (addMatch) {
+          const trackQuery = addMatch[1].trim();
+          const playlistName = addMatch[2].trim();
+
+          // Find the track.
+          const searchRes = await fetch(
+            'https://api.spotify.com/v1/search?type=track&limit=1&q=' + encodeURIComponent(trackQuery),
+            { headers: { Authorization: 'Bearer ' + token } }
+          );
+          const searchData = await searchRes.json();
+          const track = searchData.tracks && searchData.tracks.items && searchData.tracks.items[0];
+          if (!track) {
+            const reply = "I couldn't find " + trackQuery + " on Spotify.";
+            setState(STATE.SPEAKING, 'Responding');
+            responseText.textContent = reply;
+            responseText.setAttribute('data-visible', 'true');
+            speakReply(reply);
+            return true;
+          }
+
+          // Find the playlist among the user's own playlists.
+          const playlistsRes = await fetch(
+            'https://api.spotify.com/v1/me/playlists?limit=50',
+            { headers: { Authorization: 'Bearer ' + token } }
+          );
+          const playlistsData = await playlistsRes.json();
+          const playlists = playlistsData.items || [];
+          const playlist = playlists.find((p) => p.name.toLowerCase() === playlistName.toLowerCase());
+
+          if (!playlist) {
+            const reply = "I couldn't find a playlist called " + playlistName + " in your Spotify account.";
+            setState(STATE.SPEAKING, 'Responding');
+            responseText.textContent = reply;
+            responseText.setAttribute('data-visible', 'true');
+            speakReply(reply);
+            return true;
+          }
+
+          await fetch(
+            'https://api.spotify.com/v1/playlists/' + playlist.id + '/tracks',
+            {
+              method: 'POST',
+              headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ uris: [track.uri] }),
+            }
+          );
+
+          const reply = 'Added ' + track.name + ' to ' + playlist.name + '.';
+          setState(STATE.SPEAKING, 'Responding');
+          responseText.textContent = reply;
+          responseText.setAttribute('data-visible', 'true');
+          speakReply(reply);
+          return true;
+        }
+      } catch (err) {
+        const reply = "Something went wrong talking to Spotify. Try again in a moment.";
+        setState(STATE.SPEAKING, 'Responding');
+        responseText.textContent = reply;
+        responseText.setAttribute('data-visible', 'true');
+        speakReply(reply);
+        return true;
+      }
+      return false;
+    }
 
     function tryHandleOpenCommand(text) {
       const lower = text.toLowerCase().trim();
