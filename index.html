@@ -141,6 +141,9 @@
     flex-direction: column;
     gap: 4px;
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+    overscroll-behavior: contain;
   }
   .settings-panel[data-open="true"] {
     transform: translateX(0);
