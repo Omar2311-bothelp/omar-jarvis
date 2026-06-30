@@ -1895,6 +1895,10 @@
 
   function formatNoteTime(ts) {
     const d = new Date(ts);
+    const diffMin = Math.round((Date.now() - d.getTime()) / 60000);
+    if (diffMin < 1) return 'just now';
+    if (diffMin < 60) return diffMin + 'm ago';
+    if (diffMin < 1440) return Math.round(diffMin / 60) + 'h ago';
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) +
       ' · ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
   }
@@ -2422,6 +2426,18 @@
       walmart: 'https://walmart.com',
       'best buy': 'https://bestbuy.com',
       etsy: 'https://etsy.com',
+      threads: 'https://threads.net',
+      bluesky: 'https://bsky.app',
+      perplexity: 'https://perplexity.ai',
+      letterboxd: 'https://letterboxd.com',
+      steam: 'https://store.steampowered.com',
+      'epic games': 'https://store.epicgames.com',
+      roblox: 'https://roblox.com',
+      minecraft: 'https://minecraft.net',
+      venmo: 'https://venmo.com',
+      'cash app': 'https://cash.app',
+      robinhood: 'https://robinhood.com',
+      coinbase: 'https://coinbase.com',
     };
 
     // ---------- Spotify voice commands: search + add to playlist ----------
