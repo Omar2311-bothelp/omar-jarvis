@@ -2579,9 +2579,12 @@
 
       setState(STATE.SPEAKING, 'Responding');
       const label = target.charAt(0).toUpperCase() + target.slice(1);
-      const confirmation = opened
-        ? 'Opening ' + label + ' in a new tab.'
-        : "I tried to open " + label + ", but the browser blocked the new tab. You may need to allow pop-ups for this site.";
+      if (!opened) {
+        // Popup was blocked — navigate in the current tab instead.
+        window.location.href = url;
+        return true;
+      }
+      const confirmation = 'Opening ' + label + '.';
       responseText.textContent = confirmation;
       responseText.setAttribute('data-visible', 'true');
       speakReply(confirmation);
