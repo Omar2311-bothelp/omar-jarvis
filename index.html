@@ -2337,9 +2337,14 @@
         const said = finalTranscript.trim();
         if (said) {
           trySpotifyCommand(said).then((handled) => {
-            if (!handled && !tryHandleOpenCommand(said)) {
-              respondTo(said);
-            }
+            if (handled) return;
+            if (tryTimerCommand(said)) return;
+            if (tryCalendarCommand(said)) return;
+            tryWeatherCommand(said).then((handled2) => {
+              if (!handled2 && !tryHandleOpenCommand(said)) {
+                respondTo(said);
+              }
+            });
           });
         } else {
           setState(STATE.IDLE, 'Idle');
@@ -2444,6 +2449,104 @@
       robinhood: 'https://robinhood.com',
       coinbase: 'https://coinbase.com',
     };
+
+    // ---------- Weather voice commands ----------
+    async function tryWeatherCommand(text) {
+      const lower = text.toLowerCase().trim();
+      const match = lower.match(/^(?:what(?:'s| is) the weather(?:\s+like)?(?:\s+in\s+(.+?))?|weather(?:\s+in\s+(.+?))?|how(?:'s| is) the weather(?:\s+in\s+(.+?))?)[\s.?!]*$/);
+      if (!match) return false;
+
+      const city = (match[1] || match[2] || match[3] || '').trim() || 'Cairo';
+
+      setState(STATE.THINKING, 'Thinking');
+      coreLabel.textContent = 'Checking weather…';
+
+      try {
+        const res = await fetch(`https://wttr.in/${encodeURIComponent(city)}?format=j1`);
+        const data = await res.json();
+        const current = data.current_condition[0];
+        const desc = current.weatherDesc[0].value;
+        const tempC = current.temp_C;
+        const feelsC = current.FeelsLikeC;
+        const reply = `It's ${tempC}°C in ${city} — ${desc.toLowerCase()}, feels like ${feelsC}°C.`;
+        setState(STATE.SPEAKING, 'Responding');
+        responseText.textContent = reply;
+        responseText.setAttribute('data-visible', 'true');
+        speakReply(reply);
+      } catch (err) {
+        const reply = "Couldn't get the weather right now. Try again in a moment.";
+        setState(STATE.SPEAKING, 'Responding');
+        responseText.textContent = reply;
+        responseText.setAttribute('data-visible', 'true');
+        speakReply(reply);
+      }
+      return true;
+    }
+
+    // ---------- Timer / reminder voice commands ----------
+    const activeTimers = [];
+
+    function tryTimerCommand(text) {
+      const lower = text.toLowerCase().trim();
+      const match = lower.match(/^(?:set (?:a )?(?:timer|reminder|alarm)|remind me)(?: in)?\s+(\d+)\s*(second|seconds|minute|minutes|hour|hours)(?:\s+(?:to|for)\s+(.+))?[\s.?!]*$/);
+      if (!match) return false;
+
+      const amount = parseInt(match[1]);
+      const unit = match[2];
+      const label = match[3] ? match[3].trim() : null;
+
+      let ms;
+      if (unit.startsWith('second')) ms = amount * 1000;
+      else if (unit.startsWith('minute')) ms = amount * 60000;
+      else ms = amount * 3600000;
+
+      const displayUnit = amount === 1 ? unit.replace(/s$/, '') : unit;
+      const confirmation = label
+        ? `Got it — I'll remind you to ${label} in ${amount} ${displayUnit}.`
+        : `Timer set for ${amount} ${displayUnit}.`;
+
+      setState(STATE.SPEAKING, 'Responding');
+      responseText.textContent = confirmation;
+      responseText.setAttribute('data-visible', 'true');
+      speakReply(confirmation);
+
+      const timerId = setTimeout(() => {
+        const alertMsg = label ? `Time's up — ${label}.` : "Timer's done.";
+        responseText.textContent = alertMsg;
+        responseText.setAttribute('data-visible', 'true');
+        speakReply(alertMsg);
+      }, ms);
+
+      activeTimers.push(timerId);
+      return true;
+    }
+
+    // ---------- Calendar voice commands (no OAuth — opens pre-filled Google Calendar) ----------
+    function tryCalendarCommand(text) {
+      const lower = text.toLowerCase().trim();
+      const match = lower.match(/^(?:mark|add|create|set|put)\s+(.+?)\s+(?:for|as)\s+(.+?)[\s.?!]*$/);
+      if (!match) return false;
+
+      const dateStr = match[1].trim();
+      const eventTitle = match[2].trim();
+
+      // Try to parse the date — handles "July 21", "21 July", "tomorrow", etc.
+      const parsed = new Date(dateStr + ' ' + new Date().getFullYear());
+      if (isNaN(parsed.getTime())) return false;
+
+      const pad = (n) => String(n).padStart(2, '0');
+      const dateParam = `${parsed.getFullYear()}${pad(parsed.getMonth() + 1)}${pad(parsed.getDate())}`;
+
+      const calUrl = `https://calendar.google.com/calendar/r/eventedit?text=${encodeURIComponent(eventTitle)}&dates=${dateParam}/${dateParam}`;
+      window.open(calUrl, '_blank') || (window.location.href = calUrl);
+
+      const reply = `Opening Google Calendar to create "${eventTitle}" on ${dateStr}.`;
+      setState(STATE.SPEAKING, 'Responding');
+      responseText.textContent = reply;
+      responseText.setAttribute('data-visible', 'true');
+      speakReply(reply);
+      return true;
+    }
 
     // ---------- Spotify voice commands: search + add to playlist ----------
     // Handled locally (real API calls), not routed through the AI, since
