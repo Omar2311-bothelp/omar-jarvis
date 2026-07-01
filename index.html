@@ -2521,26 +2521,26 @@
       return true;
     }
 
-    // ---------- Calendar voice commands (no OAuth — opens pre-filled Google Calendar) ----------
+    // ---------- Calendar voice commands ----------
     function tryCalendarCommand(text) {
       const lower = text.toLowerCase().trim();
-      const match = lower.match(/^(?:mark|add|create|set|put)\s+(.+?)\s+(?:for|as)\s+(.+?)[\s.?!]*$/);
+      const match = lower.match(/^(?:mark|add|create|schedule|set)(?:\s+(?:a|an))?\s+(.+?)\s+(?:for|on)\s+(.+?)[\s.?!]*$/);
       if (!match) return false;
 
-      const dateStr = match[1].trim();
-      const eventTitle = match[2].trim();
+      const eventTitle = match[1].trim();
+      const dateStr = match[2].trim();
 
-      // Try to parse the date — handles "July 21", "21 July", "tomorrow", etc.
-      const parsed = new Date(dateStr + ' ' + new Date().getFullYear());
+      // Parse common date formats — "july 21", "21 july", "july 21 2026"
+      const parsed = new Date(dateStr + ' 2026');
       if (isNaN(parsed.getTime())) return false;
 
       const pad = (n) => String(n).padStart(2, '0');
-      const dateParam = `${parsed.getFullYear()}${pad(parsed.getMonth() + 1)}${pad(parsed.getDate())}`;
+      const dateFormatted = parsed.getFullYear() + pad(parsed.getMonth() + 1) + pad(parsed.getDate());
 
-      const calUrl = `https://calendar.google.com/calendar/r/eventedit?text=${encodeURIComponent(eventTitle)}&dates=${dateParam}/${dateParam}`;
+      const calUrl = `https://calendar.google.com/calendar/r/eventedit?text=${encodeURIComponent(eventTitle)}&dates=${dateFormatted}/${dateFormatted}`;
       window.open(calUrl, '_blank') || (window.location.href = calUrl);
 
-      const reply = `Opening Google Calendar to create "${eventTitle}" on ${dateStr}.`;
+      const reply = `Opening Google Calendar to add "${eventTitle}" on ${parsed.toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}.`;
       setState(STATE.SPEAKING, 'Responding');
       responseText.textContent = reply;
       responseText.setAttribute('data-visible', 'true');
